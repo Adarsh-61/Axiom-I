@@ -1,67 +1,99 @@
 # Axiom-I
 
-Axiom-I is a hardware-agnostic image forensics system for deepfake detection. It combines physics-driven image signals, learned calibration, and a feedback loop to improve reliability over time.
+Axiom-I is an image checking system.
+It takes an image and gives a result: Real or Fake.
 
-## Key Capabilities
+## Important Rules
 
-- FastAPI backend for image analysis, health monitoring, and feedback ingestion.
-- Multi-signal forensic pipeline with full-physics and fallback modes.
-- Calibration engine trained from seed samples and trust-weighted user feedback.
-- Next.js frontend for upload, analysis visualization, metrics, and feedback workflows.
-- Ready-to-use diagrams and presentation material for project demonstration.
+- This project uses a virtual environment.
+- Do not install Python packages globally.
+- Always use uv pip for Python package install.
+- Use npm only for frontend packages.
 
-## Project Layout
+## Main Folders
 
-- `Coding/Image/backend/`: Backend API, pipeline modules, calibration logic, training utility.
-- `Coding/Image/frontend/`: Frontend application (Next.js + TypeScript).
-- `Coding/Image/test/`: Real/Fake dataset used for local calibration and validation.
-- `Documents/Image/Diagrams/`: Exported architecture and flow diagrams.
-- `Documents/Image/Axiom-I.odp`: Presentation source.
+- Coding/Image/backend: FastAPI backend and image analysis logic.
+- Coding/Image/frontend: Next.js web app.
+- Coding/Image/test: Real and Fake test images.
+- Documents/Image/Diagrams: project diagrams.
 
-## Prerequisites
+## What You Need
 
-- Python 3.11+ (project currently tested with virtual environment setup).
-- Node.js 20+ and npm.
-- Linux/macOS/Windows environment with OpenCV-compatible dependencies.
+- Python 3.11 or newer
+- Node.js 20 or newer
+- npm
+- uv
 
-## Backend Setup
+## Setup (Step by Step)
+
+### 1. Go to project root
 
 ```bash
-cd Coding/Image/backend
-python -m pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd /path/to/Axiom-I
 ```
 
-Backend base URL: `http://localhost:8000`
+### 2. Create and activate virtual environment
 
-## Frontend Setup
+Linux or macOS:
+
+```bash
+uv venv .venv
+source .venv/bin/activate
+```
+
+Windows (PowerShell):
+
+```powershell
+uv venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### 3. Install backend dependencies (use uv pip only)
+
+```bash
+uv pip install -r Coding/Image/backend/requirements.txt
+```
+
+### 4. Install frontend dependencies
 
 ```bash
 cd Coding/Image/frontend
 npm install
+cd ../../..
+```
+
+### 5. Create backend env file
+
+```bash
+cp Coding/Image/backend/.env.example Coding/Image/backend/.env
+```
+
+## Run the Project
+
+Open two terminals.
+
+Terminal 1 (backend):
+
+```bash
+cd Coding/Image/backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Terminal 2 (frontend):
+
+```bash
+cd Coding/Image/frontend
 npm run dev
 ```
 
-Frontend URL: `http://localhost:3000`
+Now open:
 
-## Environment Variables
+- Frontend: http://localhost:3000
+- Backend docs: http://localhost:8000/docs
 
-Backend variables are loaded from `Coding/Image/backend/.env` using `AXIOM_` prefix.
+## Optional: Rebuild Training Seed Data
 
-- `AXIOM_DEVICE`: runtime device (`cpu`, `cuda`, etc.).
-- `AXIOM_DEBUG`: enable/disable debug mode.
-- `AXIOM_API_HOST`: backend host.
-- `AXIOM_API_PORT`: backend port.
-- `AXIOM_ALLOWED_ORIGINS`: JSON array of allowed CORS origins.
-- `AXIOM_ALLOW_MODEL_DOWNLOAD`: if `true`, allows first-run model download.
-- `AXIOM_VIT_MODEL_NAME`: Hugging Face model identifier for ViT classifier.
-
-## Calibration and Training
-
-The backend uses seed features plus accepted feedback records for calibration.
-
-Run seed regeneration and model rebuild:
+Use this when you want to rebuild seed features from the test set.
 
 ```bash
 cd Coding/Image/backend
@@ -70,30 +102,28 @@ python train_from_testset.py --mode fallback --dataset-root ../test
 
 Modes:
 
-- `fallback`: quicker, full-image signal path.
-- `full`: full-physics extraction, slower but richer signal set.
+- fallback: faster
+- full: slower, more detailed analysis
 
-## API Summary
+## Production Run
 
-- `GET /`: service metadata and links.
-- `GET /api/v1/health`: service health status.
-- `POST /api/v1/analyze`: image forensic analysis.
-- `POST /api/v1/feedback`: user feedback submission.
-- `GET /api/v1/feedback/metrics`: confusion matrix and calibration diagnostics.
+Frontend:
 
-## Security and Reliability Notes
+```bash
+cd Coding/Image/frontend
+npm run build
+npm run start
+```
 
-- Rate limiting is enabled for analysis and feedback endpoints.
-- Security headers and CORS controls are enabled in backend and frontend layers.
-- JSON persistence for calibration artifacts uses atomic writes for safer updates.
-- By default, model auto-download is disabled for predictable offline behavior.
+Backend:
 
-## Repository Hygiene
+```bash
+cd Coding/Image/backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-The repository is configured for clean source control:
+## Notes
 
-- Excludes local virtual environments, caches, build outputs, and logs.
-- Excludes runtime-only feedback logs and temporary calibration artifacts.
-- Excludes external reference research PDFs not required to run the system.
-
-Included assets are production-relevant: source code, dataset, diagrams, and presentation material.
+- Keep the virtual environment active while working.
+- Use uv pip every time for Python package install.
+- Do not use global pip install for this project.
