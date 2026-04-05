@@ -1,60 +1,72 @@
 # Axiom-I
 
-Axiom-I is an image checking system.
-It takes an image and gives a result: Real or Fake.
+Axiom-I is a complete deepfake image detection project.
+It includes:
 
-## Important Rules
+- a backend API for analysis
+- a frontend web app for user interaction
+- a feedback and calibration flow to improve results over time
 
-- This project uses a virtual environment.
+The project is designed to run locally without global Python package installation.
+
+## 1. Important Rules
+
+Please follow these rules for every setup:
+
+- Use a virtual environment for Python.
 - Do not install Python packages globally.
-- Always use uv pip for Python package install.
-- Use npm only for frontend packages.
+- Always use uv pip for Python dependencies.
+- Use npm only for frontend dependencies.
 
-## Main Folders
+## 2. Project Structure
 
-- Coding/Image/backend: FastAPI backend and image analysis logic.
-- Coding/Image/frontend: Next.js web app.
-- Coding/Image/test: Real and Fake test images.
-- Documents/Image/Diagrams: project diagrams.
+- Coding/Image/backend: FastAPI backend, ML pipeline, feedback and calibration logic.
+- Coding/Image/frontend: Next.js frontend UI.
+- Coding/Image/test: Real and Fake image dataset for testing and training.
+- Documents/Image/Diagrams: project diagrams for architecture and flow.
+- Documents/Image/Axiom-I.odp: presentation file.
 
-## What You Need
+## 3. Requirements
 
-- Python 3.11 or newer
-- Node.js 20 or newer
-- npm
+- Python 3.11+
 - uv
+- Node.js 20+
+- npm
 
-## Setup (Step by Step)
+## 4. Full Setup Guide
 
-### 1. Go to project root
+### Step 1: Go to project root
 
 ```bash
 cd /path/to/Axiom-I
 ```
 
-### 2. Create and activate virtual environment
+### Step 2: Create virtual environment
 
-Linux or macOS:
+Linux/macOS:
 
 ```bash
 uv venv .venv
 source .venv/bin/activate
 ```
 
-Windows (PowerShell):
+Windows PowerShell:
 
 ```powershell
 uv venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-### 3. Install backend dependencies (use uv pip only)
+### Step 3: Install backend dependencies
+
+Do not use pip install directly.
+Use uv pip:
 
 ```bash
 uv pip install -r Coding/Image/backend/requirements.txt
 ```
 
-### 4. Install frontend dependencies
+### Step 4: Install frontend dependencies
 
 ```bash
 cd Coding/Image/frontend
@@ -62,19 +74,21 @@ npm install
 cd ../../..
 ```
 
-### 5. Create backend env file
+### Step 5: Create backend environment file
 
 ```bash
 cp Coding/Image/backend/.env.example Coding/Image/backend/.env
 ```
 
-## Run the Project
+## 5. Run in Development Mode
 
 Open two terminals.
 
 Terminal 1 (backend):
 
 ```bash
+cd /path/to/Axiom-I
+source .venv/bin/activate
 cd Coding/Image/backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -82,48 +96,106 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 Terminal 2 (frontend):
 
 ```bash
-cd Coding/Image/frontend
+cd /path/to/Axiom-I/Coding/Image/frontend
 npm run dev
 ```
 
-Now open:
+Open these URLs:
 
 - Frontend: http://localhost:3000
 - Backend docs: http://localhost:8000/docs
+- Backend health: http://localhost:8000/api/v1/health
 
-## Optional: Rebuild Training Seed Data
+## 6. Backend Environment Variables
 
-Use this when you want to rebuild seed features from the test set.
+Edit Coding/Image/backend/.env as needed.
+
+- AXIOM_DEVICE: cpu or cuda.
+- AXIOM_DEBUG: true or false.
+- AXIOM_API_HOST: backend host.
+- AXIOM_API_PORT: backend port.
+- AXIOM_ALLOWED_ORIGINS: allowed frontend URLs.
+- AXIOM_ALLOW_MODEL_DOWNLOAD: true or false.
+- AXIOM_VIT_MODEL_NAME: model name for image classifier.
+
+Note:
+
+- AXIOM_ALLOW_MODEL_DOWNLOAD=false keeps startup predictable.
+- Set it to true if you want first-time model download automatically.
+
+## 7. API Endpoints
+
+Main endpoints:
+
+- GET / : basic service info.
+- GET /api/v1/health : health check.
+- POST /api/v1/analyze : analyze one image.
+- POST /api/v1/feedback : submit user feedback.
+- GET /api/v1/feedback/metrics : confusion matrix and calibration metrics.
+
+## 8. Training and Calibration
+
+You can rebuild seed training data from the local test folder.
 
 ```bash
+cd /path/to/Axiom-I
+source .venv/bin/activate
 cd Coding/Image/backend
 python train_from_testset.py --mode fallback --dataset-root ../test
 ```
 
 Modes:
 
-- fallback: faster
-- full: slower, more detailed analysis
+- fallback: faster, lower compute
+- full: slower, more detailed processing
 
-## Production Run
+## 9. Frontend Scripts
 
-Frontend:
+Run from Coding/Image/frontend:
 
-```bash
-cd Coding/Image/frontend
-npm run build
-npm run start
-```
+- npm run dev: start local frontend
+- npm run build: production build
+- npm run start: run production server
+- npm run lint: TypeScript check
+
+## 10. Production Run
 
 Backend:
 
 ```bash
+cd /path/to/Axiom-I
+source .venv/bin/activate
 cd Coding/Image/backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Notes
+Frontend:
 
-- Keep the virtual environment active while working.
-- Use uv pip every time for Python package install.
-- Do not use global pip install for this project.
+```bash
+cd /path/to/Axiom-I/Coding/Image/frontend
+npm run build
+npm run start
+```
+
+## 11. Common Issues and Fixes
+
+Issue: frontend cannot connect to backend.
+
+- Check backend is running on port 8000.
+- Check AXIOM_ALLOWED_ORIGINS includes http://localhost:3000.
+
+Issue: model warning about local cache.
+
+- Set AXIOM_ALLOW_MODEL_DOWNLOAD=true in backend .env.
+- Restart backend.
+
+Issue: command not found for uv.
+
+- Install uv first, then recreate virtual environment.
+
+## 12. Final Notes
+
+- Keep virtual environment active while working.
+- Use uv pip for every Python dependency installation.
+- Do not install Python dependencies globally.
+- This keeps your machine clean and keeps project setup stable.
