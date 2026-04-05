@@ -3,6 +3,8 @@ import numpy as np
 import cv2
 import logging
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
                                                                           
@@ -26,7 +28,12 @@ def _ensure_detector():
                                            
                                                                                           
                                                                                                
-        device = torch.device('cpu')
+        requested_device = (settings.DEVICE or "cpu").strip().lower()
+        if requested_device.startswith("cuda") and not torch.cuda.is_available():
+            logger.warning("AXIOM_DEVICE=%s requested but CUDA is unavailable; using cpu.", requested_device)
+            requested_device = "cpu"
+
+        device = torch.device(requested_device)
         _detector = MTCNN(keep_all=True, device=device)
         logger.info(f"MTCNN Face Detector loaded on {device}.")
         return True
@@ -105,3 +112,7 @@ def detect(image: np.ndarray, min_confidence: float = 0.9, min_size: int = 64):
     except Exception as e:
         logger.error(f"Face detection failed: {e}")
         return []
+
+
+def warmup_detector() -> bool:
+    return _ensure_detector()

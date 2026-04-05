@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import tempfile
 import threading
 from collections import Counter
 from datetime import datetime, timezone
@@ -79,8 +80,22 @@ def _load_json(path: str, default):
 
 def _save_json(path: str, payload):
     _ensure_dir()
-    with open(path, "w") as f:
-        json.dump(payload, f, indent=2)
+    target_dir = os.path.dirname(path) or _FEEDBACK_DIR
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=target_dir, delete=False) as tmp:
+            json.dump(payload, tmp, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = tmp.name
+
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 def _append_quarantine_record(record: dict, reason: str):
@@ -1009,7 +1024,9 @@ def record_feedback(
         if duplicate_key not in existing_keys:
             existing.append(record)
             _save_json(_FEEDBACK_FILE, existing)
-            _MODEL_CACHE["feedback_mtime"] = None
+            with _MODEL_CACHE_LOCK:
+                _MODEL_CACHE["feedback_mtime"] = None
+                _MODEL_CACHE["seed_mtime"] = None
             _refresh_model_async()
     except Exception as e:
         logger.error(f"Failed to save feedback record: {e}")

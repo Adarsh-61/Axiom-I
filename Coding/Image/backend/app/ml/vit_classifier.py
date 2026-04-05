@@ -5,6 +5,8 @@ from PIL import Image
 import numpy as np
 import warnings
 
+from app.config import settings
+
                                 
 warnings.filterwarnings("ignore")
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -13,18 +15,32 @@ logger = logging.getLogger(__name__)
 
 class ViTClassifier:
 
-    def __init__(self, model_name="prithivMLmods/Deep-Fake-Detector-v2-Model"):
+    def __init__(self, model_name: str | None = None):
+        resolved_model_name = model_name or settings.VIT_MODEL_NAME
+        allow_download = bool(settings.ALLOW_MODEL_DOWNLOAD)
+
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = None
         self.processor = None
         self.fake_label_id = None
+        self._warned_unavailable = False
 
         try:
             from transformers import AutoImageProcessor, AutoModelForImageClassification
-            logger.info(f"Loading ViT classifier: {model_name}")
+            logger.info(
+                "Loading ViT classifier: %s (allow_download=%s)",
+                resolved_model_name,
+                allow_download,
+            )
 
-            self.processor = AutoImageProcessor.from_pretrained(model_name)
-            self.model = AutoModelForImageClassification.from_pretrained(model_name)
+            self.processor = AutoImageProcessor.from_pretrained(
+                resolved_model_name,
+                local_files_only=not allow_download,
+            )
+            self.model = AutoModelForImageClassification.from_pretrained(
+                resolved_model_name,
+                local_files_only=not allow_download,
+            )
             self.model.eval()
             self.model.to(self.device)
 
@@ -44,11 +60,21 @@ class ViTClassifier:
         except ImportError:
             logger.error("transformers library not installed!")
         except Exception as e:
-            logger.error(f"Failed to load ViT model: {e}")
+            if allow_download:
+                logger.error(f"Failed to load ViT model: {e}")
+            else:
+                logger.warning(
+                    "ViT model unavailable in local cache (%s). "
+                    "Set AXIOM_ALLOW_MODEL_DOWNLOAD=true to allow auto-download. Error: %s",
+                    resolved_model_name,
+                    e,
+                )
 
     def classify(self, image: np.ndarray) -> float:
         if self.model is None or self.processor is None:
-            logger.warning("ViT model not available, returning neutral 0.5")
+            if not self._warned_unavailable:
+                logger.warning("ViT model not available, returning neutral 0.5")
+                self._warned_unavailable = True
             return 0.5
 
         try:
@@ -82,6 +108,11 @@ def _ensure_classifier():
     if _classifier is None:
         _classifier = ViTClassifier()
     return _classifier
+
+
+def warmup_classifier() -> bool:
+    clf = _ensure_classifier()
+    return bool(clf.model is not None and clf.processor is not None)
 
 
 def get_full_image_score(image: np.ndarray) -> float:

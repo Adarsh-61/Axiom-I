@@ -1,22 +1,39 @@
 # Axiom-I
 
-Axiom-I is a hardware-agnostic image forensics framework focused on practical deepfake detection using engineered visual physics signals and lightweight calibration.
+Axiom-I is a hardware-agnostic image forensics system for deepfake detection. It combines physics-driven image signals, learned calibration, and a feedback loop to improve reliability over time.
 
-## Repository Structure
+## Key Capabilities
 
-- `Coding/Image/backend/` FastAPI backend and forensic pipeline modules.
-- `Coding/Image/frontend/` Next.js frontend for analysis, diagnostics, and feedback.
-- `Coding/Image/test/` Real/Fake image dataset used for local calibration and testing.
-- `Documents/Image/Diagrams/` Presentation-ready architecture and flow diagrams.
-- `Documents/Image/Axiom-I.odp` Project presentation source.
+- FastAPI backend for image analysis, health monitoring, and feedback ingestion.
+- Multi-signal forensic pipeline with full-physics and fallback modes.
+- Calibration engine trained from seed samples and trust-weighted user feedback.
+- Next.js frontend for upload, analysis visualization, metrics, and feedback workflows.
+- Ready-to-use diagrams and presentation material for project demonstration.
+
+## Project Layout
+
+- `Coding/Image/backend/`: Backend API, pipeline modules, calibration logic, training utility.
+- `Coding/Image/frontend/`: Frontend application (Next.js + TypeScript).
+- `Coding/Image/test/`: Real/Fake dataset used for local calibration and validation.
+- `Documents/Image/Diagrams/`: Exported architecture and flow diagrams.
+- `Documents/Image/Axiom-I.odp`: Presentation source.
+
+## Prerequisites
+
+- Python 3.11+ (project currently tested with virtual environment setup).
+- Node.js 20+ and npm.
+- Linux/macOS/Windows environment with OpenCV-compatible dependencies.
 
 ## Backend Setup
 
 ```bash
 cd Coding/Image/backend
 python -m pip install -r requirements.txt
+cp .env.example .env
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+Backend base URL: `http://localhost:8000`
 
 ## Frontend Setup
 
@@ -26,22 +43,57 @@ npm install
 npm run dev
 ```
 
-## Environment Configuration
+Frontend URL: `http://localhost:3000`
 
-1. Copy `Coding/Image/backend/.env.example` to `Coding/Image/backend/.env`.
-2. Update values if needed for your local machine.
+## Environment Variables
 
-## Local Calibration / Training
+Backend variables are loaded from `Coding/Image/backend/.env` using `AXIOM_` prefix.
+
+- `AXIOM_DEVICE`: runtime device (`cpu`, `cuda`, etc.).
+- `AXIOM_DEBUG`: enable/disable debug mode.
+- `AXIOM_API_HOST`: backend host.
+- `AXIOM_API_PORT`: backend port.
+- `AXIOM_ALLOWED_ORIGINS`: JSON array of allowed CORS origins.
+- `AXIOM_ALLOW_MODEL_DOWNLOAD`: if `true`, allows first-run model download.
+- `AXIOM_VIT_MODEL_NAME`: Hugging Face model identifier for ViT classifier.
+
+## Calibration and Training
+
+The backend uses seed features plus accepted feedback records for calibration.
+
+Run seed regeneration and model rebuild:
 
 ```bash
 cd Coding/Image/backend
-python train_from_testset.py --mode fallback --dataset-dir ../test
+python train_from_testset.py --mode fallback --dataset-root ../test
 ```
 
-Use `--mode full` for full-physics feature extraction (slower, higher compute).
+Modes:
 
-## Notes
+- `fallback`: quicker, full-image signal path.
+- `full`: full-physics extraction, slower but richer signal set.
 
-- Build outputs, caches, runtime logs, and local virtual environments are excluded via `.gitignore`.
-- External reference research PDFs are intentionally excluded from source control.
-- The repository includes code, dataset, and diagrams needed to run and present Axiom-I locally.
+## API Summary
+
+- `GET /`: service metadata and links.
+- `GET /api/v1/health`: service health status.
+- `POST /api/v1/analyze`: image forensic analysis.
+- `POST /api/v1/feedback`: user feedback submission.
+- `GET /api/v1/feedback/metrics`: confusion matrix and calibration diagnostics.
+
+## Security and Reliability Notes
+
+- Rate limiting is enabled for analysis and feedback endpoints.
+- Security headers and CORS controls are enabled in backend and frontend layers.
+- JSON persistence for calibration artifacts uses atomic writes for safer updates.
+- By default, model auto-download is disabled for predictable offline behavior.
+
+## Repository Hygiene
+
+The repository is configured for clean source control:
+
+- Excludes local virtual environments, caches, build outputs, and logs.
+- Excludes runtime-only feedback logs and temporary calibration artifacts.
+- Excludes external reference research PDFs not required to run the system.
+
+Included assets are production-relevant: source code, dataset, diagrams, and presentation material.

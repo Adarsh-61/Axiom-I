@@ -117,6 +117,54 @@ interface FeedbackSubmitResponse {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
 const FEEDBACK_CLIENT_ID_KEY = 'axiom_feedback_client_id';
+const ANALYZE_TIMEOUT_MS = 120_000;
+const FEEDBACK_TIMEOUT_MS = 30_000;
+const METRICS_TIMEOUT_MS = 30_000;
+
+type ErrorPayload = {
+  detail?: string;
+  error?: string;
+  message?: string;
+};
+
+const withTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
+const parseJsonSafe = async <T,>(response: Response): Promise<T | null> => {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+};
+
+const extractErrorMessage = (payload: ErrorPayload | null, fallback: string): string => {
+  if (!payload) {
+    return fallback;
+  }
+  if (typeof payload.detail === 'string' && payload.detail.trim()) {
+    return payload.detail;
+  }
+  if (typeof payload.error === 'string' && payload.error.trim()) {
+    return payload.error;
+  }
+  if (typeof payload.message === 'string' && payload.message.trim()) {
+    return payload.message;
+  }
+  return fallback;
+};
 
 const getOrCreateClientId = (): string => {
   if (typeof window === 'undefined') {
@@ -262,12 +310,19 @@ export default function Home() {
 
   const fetchDiagnostics = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/v1/feedback/metrics`);
+      const response = await withTimeout(
+        `${API_BASE}/api/v1/feedback/metrics`,
+        { method: 'GET' },
+        METRICS_TIMEOUT_MS,
+      );
       if (!response.ok) {
         return;
       }
-      const payload = (await response.json()) as FeedbackDiagnosticsResponse;
-      setDiagnostics(payload);
+
+      const payload = await parseJsonSafe<FeedbackDiagnosticsResponse>(response);
+      if (payload) {
+        setDiagnostics(payload);
+      }
     } catch {
       return;
     }
@@ -412,19 +467,30 @@ export default function Home() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/api/v1/analyze`, {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await withTimeout(
+        `${API_BASE}/api/v1/analyze`,
+        {
+          method: 'POST',
+          body: formData,
+        },
+        ANALYZE_TIMEOUT_MS,
+      );
 
-      const payload = await response.json();
+      const payload = await parseJsonSafe<AnalysisResponse & ErrorPayload>(response);
       if (!response.ok) {
-        throw new Error(payload?.detail || payload?.error || 'Analysis failed.');
+        throw new Error(extractErrorMessage(payload, 'Analysis failed.'));
+      }
+      if (!payload) {
+        throw new Error('Analysis response was empty or invalid.');
       }
 
       setResult(payload as AnalysisResponse);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed.');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Analysis timed out. Please try another image or retry.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Analysis failed.');
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -472,21 +538,28 @@ export default function Home() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_image_score: effectiveScore,
-          original_prediction: result.verdict,
-          user_truth: userTruth,
-          feature_vector: featureVector,
-          user_id: getOrCreateClientId(),
-        }),
-      });
+      const response = await withTimeout(
+        `${API_BASE}/api/v1/feedback`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            full_image_score: effectiveScore,
+            original_prediction: result.verdict,
+            user_truth: userTruth,
+            feature_vector: featureVector,
+            user_id: getOrCreateClientId(),
+          }),
+        },
+        FEEDBACK_TIMEOUT_MS,
+      );
 
-      const payload = (await response.json()) as FeedbackSubmitResponse;
+      const payload = await parseJsonSafe<FeedbackSubmitResponse & ErrorPayload>(response);
       if (!response.ok) {
-        throw new Error((payload as unknown as { detail?: string }).detail || 'Feedback submission failed.');
+        throw new Error(extractErrorMessage(payload, 'Feedback submission failed.'));
+      }
+      if (!payload) {
+        throw new Error('Feedback response was empty or invalid.');
       }
 
       setFeedbackStatus({
@@ -499,7 +572,11 @@ export default function Home() {
 
       await fetchDiagnostics();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Feedback submission failed.');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Feedback request timed out. Please retry.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Feedback submission failed.');
+      }
     } finally {
       setIsSubmittingFeedback(false);
     }

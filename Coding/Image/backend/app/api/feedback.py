@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 import logging
 
 from app.api.schemas import FeedbackRequest, FeedbackResponse, FeedbackDiagnosticsResponse
 from app.ml.evolution import record_feedback, get_feedback_diagnostics
+from app.security.rate_limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,10 +22,11 @@ def _normalize_feedback_label(value: str) -> str | None:
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
-async def submit_feedback(request: FeedbackRequest):
+@limiter.limit("30/minute")
+async def submit_feedback(request: Request, payload: FeedbackRequest):
     try:
-        predicted_label = _normalize_feedback_label(request.original_prediction)
-        truth_label = _normalize_feedback_label(request.user_truth)
+        predicted_label = _normalize_feedback_label(payload.original_prediction)
+        truth_label = _normalize_feedback_label(payload.user_truth)
 
         if predicted_label is None or truth_label is None:
             raise HTTPException(status_code=400, detail="Prediction and truth must each be 'Real' or 'Fake'.")
@@ -35,11 +37,11 @@ async def submit_feedback(request: FeedbackRequest):
         )
 
         updated_matrix = record_feedback(
-            full_image_score=request.full_image_score,
+            full_image_score=payload.full_image_score,
             original_prediction=predicted_label,
             user_truth=truth_label,
-            feature_vector=request.feature_vector,
-            user_id=request.user_id,
+            feature_vector=payload.feature_vector,
+            user_id=payload.user_id,
         )
 
         return FeedbackResponse(
@@ -66,7 +68,8 @@ async def submit_feedback(request: FeedbackRequest):
 
 
 @router.get("/feedback/metrics", response_model=FeedbackDiagnosticsResponse)
-async def get_feedback_metrics():
+@limiter.limit("60/minute")
+async def get_feedback_metrics(request: Request):
     try:
         return FeedbackDiagnosticsResponse(**get_feedback_diagnostics())
     except Exception as e:

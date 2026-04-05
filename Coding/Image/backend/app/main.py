@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        from app.ml.vit_classifier import warmup_classifier
+        from app.ml.face_detector import warmup_detector
+
+        vit_ready = warmup_classifier()
+        detector_ready = warmup_detector()
+        logger.info(
+            "Model warmup complete: vit_ready=%s detector_ready=%s",
+            vit_ready,
+            detector_ready,
+        )
+    except Exception as e:
+        logger.warning(f"Model warmup skipped due to initialization error: {e}")
+
     logger.info("Axiom-I Image Forensics Backend started successfully.")
     yield
     logger.info("Axiom-I Image Forensics Backend shutting down.")
