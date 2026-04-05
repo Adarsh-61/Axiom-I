@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Models (large binary files)
+Coding/Image/models/*.pth
+Coding/Image/models/*.onnx
+Coding/Image/models/*.pt
+
+# Uploads
+Coding/Image/uploads/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Logs
+*.log
+
+# Runtime-generated backend feedback logs
+Coding/Image/backend/app/ml/feedback_data/feedback_log.json
+Coding/Image/backend/app/ml/feedback_data/calibration_history.json
+Coding/Image/backend/app/ml/feedback_data/calibration_metrics.json
+Coding/Image/backend/app/ml/feedback_data/quarantine_log.json
+
+# External reference PDFs (kept out of source repository)
+Documents/Image/Research Papers/
+
+# Test
+.pytest_cache/
+htmlcov/
+.coverage

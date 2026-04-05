@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual Environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Logs and Debug
+*.log
+top_output.txt
+
+# Uploads (runtime data)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML Model Caches
+models/
+*.onnx
+*.pt
+*.pth
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Next.js (frontend)
+frontend/.next/
+frontend/node_modules/
+frontend/out/
