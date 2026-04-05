@@ -26,6 +26,10 @@ Please follow these rules for every setup:
 - Documents/Image/Diagrams: project diagrams for architecture and flow.
 - Documents/Image/Axiom-I.odp: presentation file.
 
+Detailed backend API guide:
+
+- Coding/Image/backend/README.md
+
 ## 3. Requirements
 
 - Python 3.11+
