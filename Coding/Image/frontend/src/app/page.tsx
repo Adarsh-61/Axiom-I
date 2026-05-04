@@ -1,293 +1,21 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-interface SignalBreakdown {
-  specular: number;
-  frequency: number;
-  topology: number;
-  patch_consistency: number;
-  wavelet_score: number;
-  vit_score: number;
-  physics_ensemble: number;
-  raw_fusion: number;
-  calibrated: number;
-}
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { Tex } from './Tex';
+import {
+  API_BASE, ANALYZE_TIMEOUT_MS, FEEDBACK_TIMEOUT_MS, METRICS_TIMEOUT_MS,
+  AnalysisResponse, FeedbackDiagnosticsResponse, FeedbackSubmitResponse,
+  PipelineStepDef,
+  withTimeout, parseJsonSafe, extractErrorMessage, getOrCreateClientId,
+  toPercent, toFixed, toFileSize, getFullPhysicsSteps, getFallbackSteps,
+} from './helpers';
 
-interface FaceResult {
-  bbox: number[];
-  confidence: number;
-  verdict: string;
-  score: number;
-  signal_breakdown?: SignalBreakdown;
-}
+type ErrorPayload = { detail?: string; error?: string; message?: string };
 
-interface VisualizationStep {
-  step: number;
-  label: string;
-  data: string;
-}
-
-interface AnalysisResponse {
-  verdict: string;
-  confidence: number;
-  faces_detected: number;
-  faces: FaceResult[];
-  steps: VisualizationStep[];
-  full_image_score?: number;
-  analysis_mode?: string;
-  fallback_breakdown?: Record<string, number>;
-  feature_vector?: number[];
-  calibration_breakdown?: Record<string, number>;
-  quality_metrics?: Record<string, number>;
-  process_inputs?: {
-    image_shape?: number[];
-    analysis_mode?: string;
-    components?: string[];
-    feature_names?: string[];
-  };
-  decision_factors?: Record<string, number>;
-  explanation?: string[];
-  error?: string;
-}
-
-interface CalibrationBin {
-  bin_start: number;
-  bin_end: number;
-  count: number;
-  accuracy: number;
-  confidence: number;
-  gap: number;
-}
-
-interface FeedbackDiagnosticsResponse {
-  confusion_matrix: {
-    TP: number;
-    TN: number;
-    FP: number;
-    FN: number;
-    total: number;
-  };
-  calibration_metrics: {
-    total_samples: number;
-    brier_score: number;
-    log_loss: number;
-    ece: number;
-    mce: number;
-    mean_confidence: number;
-    mean_accuracy: number;
-    overconfidence_gap: number;
-    bins?: CalibrationBin[];
-    [key: string]: unknown;
-  };
-  calibration_history: Array<Record<string, unknown>>;
-  feedback_summary: {
-    total_feedback_records: number;
-    training_eligible_records: number;
-    training_excluded_records: number;
-    training_exclusion_reasons: Record<string, number>;
-    trust_summary?: {
-      tracked_users: number;
-      mean_trust_score: number | null;
-      min_trust_score: number | null;
-      max_trust_score: number | null;
-      mean_sample_weight: number | null;
-      [key: string]: unknown;
-    };
-  };
-}
-
-interface FeedbackSubmitResponse {
-  status: string;
-  message: string;
-  confusion_matrix: {
-    TP: number;
-    TN: number;
-    FP: number;
-    FN: number;
-    total?: number;
-  };
-  training_eligible: boolean;
-  training_exclusion_reason?: string | null;
-  calibration_metrics?: Record<string, unknown>;
-  user_trust_score?: number;
-  user_sample_weight?: number;
-}
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
-const FEEDBACK_CLIENT_ID_KEY = 'axiom_feedback_client_id';
-const ANALYZE_TIMEOUT_MS = 120_000;
-const FEEDBACK_TIMEOUT_MS = 30_000;
-const METRICS_TIMEOUT_MS = 30_000;
-
-type ErrorPayload = {
-  detail?: string;
-  error?: string;
-  message?: string;
-};
-
-const withTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-};
-
-const parseJsonSafe = async <T,>(response: Response): Promise<T | null> => {
-  const text = await response.text();
-  if (!text) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-};
-
-const extractErrorMessage = (payload: ErrorPayload | null, fallback: string): string => {
-  if (!payload) {
-    return fallback;
-  }
-  if (typeof payload.detail === 'string' && payload.detail.trim()) {
-    return payload.detail;
-  }
-  if (typeof payload.error === 'string' && payload.error.trim()) {
-    return payload.error;
-  }
-  if (typeof payload.message === 'string' && payload.message.trim()) {
-    return payload.message;
-  }
-  return fallback;
-};
-
-const getOrCreateClientId = (): string => {
-  if (typeof window === 'undefined') {
-    return 'anonymous';
-  }
-
-  const existing = window.localStorage.getItem(FEEDBACK_CLIENT_ID_KEY);
-  if (existing && existing.trim().length > 0) {
-    return existing;
-  }
-
-  const created =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-
-  window.localStorage.setItem(FEEDBACK_CLIENT_ID_KEY, created);
-  return created;
-};
-
-const toPercent = (value: number | undefined): string => {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '-';
-  }
-  return `${(value * 100).toFixed(1)}%`;
-};
-
-const toFixed = (value: number | undefined, digits = 4): string => {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '-';
-  }
-  return value.toFixed(digits);
-};
-
-const toDisplay = (value: unknown): string => {
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) {
-      return '-';
-    }
-    return Number.isInteger(value) ? String(value) : value.toFixed(4);
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0 ? value.join(', ') : '-';
-  }
-
-  if (value === null || value === undefined) {
-    return '-';
-  }
-
-  return JSON.stringify(value);
-};
-
-const labelOverrides: Record<string, string> = {
-  ece: 'ECE',
-  fn: 'FN',
-  fp: 'FP',
-  mce: 'MCE',
-  tn: 'TN',
-  tp: 'TP',
-  vit: 'ViT',
-};
-
-const formatLabel = (raw: string): string => {
-  const normalized = raw.trim();
-  if (!normalized) {
-    return '-';
-  }
-
-  const lower = normalized.toLowerCase();
-  if (labelOverrides[lower]) {
-    return labelOverrides[lower];
-  }
-
-  return normalized
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
-    .replace(/\bVit\b/g, 'ViT');
-};
-
-const toFileSize = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '-';
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-};
-
-const verdictClassName = (value: string | undefined): string => {
-  const normalized = (value || '').trim().toLowerCase();
-  if (normalized === 'real') {
-    return 'textReal';
-  }
-  if (normalized === 'fake') {
-    return 'textFake';
-  }
-  return '';
-};
-
-const percentLikeKeys = new Set([
-  'confidence',
-  'accuracy',
-  'mean_confidence',
-  'mean_accuracy',
-  'overconfidence_gap',
-  'mean_trust_score',
-  'min_trust_score',
-  'max_trust_score',
-  'trust_score',
-]);
-
-const formatMetricValue = (key: string, value: unknown): string => {
-  if (typeof value === 'number' && percentLikeKeys.has(key.toLowerCase())) {
-    return toPercent(value);
-  }
-  return toDisplay(value);
-};
+const signalColor = (v: number) => v >= 0.6 ? 'danger' : v >= 0.3 ? 'mid' : 'safe';
+const f = (v: number | undefined) => typeof v === 'number' ? v.toFixed(4) : '?';
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -299,875 +27,342 @@ export default function Home() {
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [diagnostics, setDiagnostics] = useState<FeedbackDiagnosticsResponse | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<{
-    message: string;
-    trainingEligible: boolean;
-    exclusionReason?: string | null;
-    trustScore?: number;
-    sampleWeight?: number;
+    message: string; trainingEligible: boolean; exclusionReason?: string | null;
   } | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDiagnostics = useCallback(async () => {
     try {
-      const response = await withTimeout(
-        `${API_BASE}/api/v1/feedback/metrics`,
-        { method: 'GET' },
-        METRICS_TIMEOUT_MS,
-      );
-      if (!response.ok) {
-        return;
-      }
-
-      const payload = await parseJsonSafe<FeedbackDiagnosticsResponse>(response);
-      if (payload) {
-        setDiagnostics(payload);
-      }
-    } catch {
-      return;
-    }
+      const res = await withTimeout(`${API_BASE}/api/v1/feedback/metrics`, { method: 'GET' }, METRICS_TIMEOUT_MS);
+      if (!res.ok) return;
+      const p = await parseJsonSafe<FeedbackDiagnosticsResponse>(res);
+      if (p) setDiagnostics(p);
+    } catch { /* silent */ }
   }, []);
 
-  useEffect(() => {
-    void fetchDiagnostics();
-  }, [fetchDiagnostics]);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-  }, [previewUrl]);
-
-  const processComponents = useMemo(() => {
-    return result?.process_inputs?.components ?? [];
-  }, [result]);
-
-  const processFeatureNames = useMemo(() => {
-    return result?.process_inputs?.feature_names ?? [];
-  }, [result]);
-
-  const qualityMetricEntries = useMemo(() => {
-    return Object.entries(result?.quality_metrics || {});
-  }, [result]);
-
-  const decisionFactorEntries = useMemo(() => {
-    return Object.entries(result?.decision_factors || {});
-  }, [result]);
-
-  const calibrationBreakdownEntries = useMemo(() => {
-    return Object.entries(result?.calibration_breakdown || {});
-  }, [result]);
-
-  const fallbackBreakdownEntries = useMemo(() => {
-    return Object.entries(result?.fallback_breakdown || {});
-  }, [result]);
-
-  const featureVectorRows = useMemo(() => {
-    const featureVector = result?.feature_vector || [];
-    return featureVector.map((value, index) => ({
-      index,
-      name: processFeatureNames[index] || `feature_${index + 1}`,
-      value,
-    }));
-  }, [result, processFeatureNames]);
-
-  const diagnosticsCalibrationEntries = useMemo(() => {
-    if (!diagnostics) {
-      return [] as Array<[string, unknown]>;
-    }
-
-    return Object.entries(diagnostics.calibration_metrics).filter(([key]) => key !== 'bins');
-  }, [diagnostics]);
-
-  const diagnosticsBins = useMemo(() => {
-    if (!diagnostics || !Array.isArray(diagnostics.calibration_metrics.bins)) {
-      return [] as CalibrationBin[];
-    }
-
-    return diagnostics.calibration_metrics.bins;
-  }, [diagnostics]);
-
-  const exclusionReasonEntries = useMemo(() => {
-    return Object.entries(diagnostics?.feedback_summary.training_exclusion_reasons || {});
-  }, [diagnostics]);
-
-  const trustSummaryEntries = useMemo(() => {
-    if (!diagnostics?.feedback_summary.trust_summary) {
-      return [] as Array<[string, unknown]>;
-    }
-    return Object.entries(diagnostics.feedback_summary.trust_summary);
-  }, [diagnostics]);
-
-  const calibrationHistoryRows = useMemo(() => {
-    if (!diagnostics?.calibration_history) {
-      return [] as Array<Record<string, unknown>>;
-    }
-    return diagnostics.calibration_history.slice(-10).reverse();
-  }, [diagnostics]);
-
-  const handleDragOver = (event: React.DragEvent) => {
-    event.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (event: React.DragEvent) => {
-    event.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    setIsDragging(false);
-    if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
-      handleFileSelection(event.dataTransfer.files[0]);
-    }
-  };
+  useEffect(() => { void fetchDiagnostics(); }, [fetchDiagnostics]);
+  useEffect(() => { return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }; }, [previewUrl]);
 
   const handleFileSelection = (selectedFile: File) => {
-    setError(null);
-    setResult(null);
-    setFeedbackStatus(null);
-
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      setError('File size must be 10MB or less.');
-      return;
-    }
-
-    const mimeType = (selectedFile.type || '').toLowerCase();
-    const isImageMime =
-      mimeType.startsWith('image/') ||
-      mimeType === 'application/octet-stream' ||
-      mimeType === '';
-
-    if (!isImageMime) {
-      setError('Only image files are supported.');
-      return;
-    }
-
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    setFile(selectedFile);
-    setPreviewUrl(URL.createObjectURL(selectedFile));
+    setError(null); setResult(null); setFeedbackStatus(null);
+    if (selectedFile.size > 10 * 1024 * 1024) { setError('File size must be 10 MB or less.'); return; }
+    const mime = (selectedFile.type || '').toLowerCase();
+    if (mime && !mime.startsWith('image/') && mime !== 'application/octet-stream') { setError('Only image files are supported.'); return; }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(selectedFile); setPreviewUrl(URL.createObjectURL(selectedFile));
   };
 
   const runAnalysis = async () => {
-    if (!file) {
-      return;
-    }
-
-    setIsAnalyzing(true);
-    setError(null);
-    setFeedbackStatus(null);
-
+    if (!file) return;
+    setIsAnalyzing(true); setError(null); setFeedbackStatus(null);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await withTimeout(
-        `${API_BASE}/api/v1/analyze`,
-        {
-          method: 'POST',
-          body: formData,
-        },
-        ANALYZE_TIMEOUT_MS,
-      );
-
-      const payload = await parseJsonSafe<AnalysisResponse & ErrorPayload>(response);
-      if (!response.ok) {
-        throw new Error(extractErrorMessage(payload, 'Analysis failed.'));
-      }
-      if (!payload) {
-        throw new Error('Analysis response was empty or invalid.');
-      }
-
-      setResult(payload as AnalysisResponse);
+      const fd = new FormData(); fd.append('file', file);
+      const res = await withTimeout(`${API_BASE}/api/v1/analyze`, { method: 'POST', body: fd }, ANALYZE_TIMEOUT_MS);
+      const p = await parseJsonSafe<AnalysisResponse & ErrorPayload>(res);
+      if (!res.ok) throw new Error(extractErrorMessage(p, 'Analysis failed.'));
+      if (!p) throw new Error('Empty response.');
+      setResult(p as AnalysisResponse);
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        setError('Analysis timed out. Please try another image or retry.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Analysis failed.');
-      }
-    } finally {
-      setIsAnalyzing(false);
-    }
+      setError(err instanceof DOMException && err.name === 'AbortError' ? 'Analysis timed out.' : err instanceof Error ? err.message : 'Analysis failed.');
+    } finally { setIsAnalyzing(false); }
   };
 
   const resetAll = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    setFile(null);
-    setPreviewUrl(null);
-    setResult(null);
-    setError(null);
-    setFeedbackStatus(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(null); setPreviewUrl(null); setResult(null); setError(null); setFeedbackStatus(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const submitFeedback = async (userTruth: 'Real' | 'Fake') => {
-    if (!result) {
-      return;
-    }
-
-    const calibrated = result.calibration_breakdown?.calibrated_score;
-    const faceScore = result.faces?.[0]?.score;
-    const fallbackScore = result.fallback_breakdown?.calibrated;
-    const effectiveScore =
-      typeof calibrated === 'number'
-        ? calibrated
-        : typeof faceScore === 'number'
-          ? faceScore
-          : typeof fallbackScore === 'number'
-            ? fallbackScore
-            : typeof result.full_image_score === 'number'
-              ? result.full_image_score
-              : 0.5;
-
-    const featureVector = Array.isArray(result.feature_vector) && result.feature_vector.length > 0
-      ? result.feature_vector
-      : null;
-
-    setIsSubmittingFeedback(true);
-    setError(null);
-
+    if (!result) return;
+    const cb = result.calibration_breakdown;
+    const effectiveScore = typeof cb?.calibrated_score === 'number' ? cb.calibrated_score
+      : typeof result.faces?.[0]?.score === 'number' ? result.faces[0].score
+      : typeof result.full_image_score === 'number' ? result.full_image_score : 0.5;
+    setIsSubmittingFeedback(true); setError(null);
     try {
-      const response = await withTimeout(
-        `${API_BASE}/api/v1/feedback`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            full_image_score: effectiveScore,
-            original_prediction: result.verdict,
-            user_truth: userTruth,
-            feature_vector: featureVector,
-            user_id: getOrCreateClientId(),
-          }),
-        },
-        FEEDBACK_TIMEOUT_MS,
-      );
-
-      const payload = await parseJsonSafe<FeedbackSubmitResponse & ErrorPayload>(response);
-      if (!response.ok) {
-        throw new Error(extractErrorMessage(payload, 'Feedback submission failed.'));
-      }
-      if (!payload) {
-        throw new Error('Feedback response was empty or invalid.');
-      }
-
-      setFeedbackStatus({
-        message: payload.message,
-        trainingEligible: payload.training_eligible,
-        exclusionReason: payload.training_exclusion_reason,
-        trustScore: payload.user_trust_score,
-        sampleWeight: payload.user_sample_weight,
-      });
-
+      const res = await withTimeout(`${API_BASE}/api/v1/feedback`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_image_score: effectiveScore, original_prediction: result.verdict, user_truth: userTruth, feature_vector: result.feature_vector || null, user_id: getOrCreateClientId() }),
+      }, FEEDBACK_TIMEOUT_MS);
+      const p = await parseJsonSafe<FeedbackSubmitResponse & ErrorPayload>(res);
+      if (!res.ok) throw new Error(extractErrorMessage(p, 'Feedback failed.'));
+      if (!p) throw new Error('Empty response.');
+      setFeedbackStatus({ message: p.message, trainingEligible: p.training_eligible, exclusionReason: p.training_exclusion_reason });
       await fetchDiagnostics();
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        setError('Feedback request timed out. Please retry.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Feedback submission failed.');
-      }
-    } finally {
-      setIsSubmittingFeedback(false);
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Feedback failed.'); }
+    finally { setIsSubmittingFeedback(false); }
   };
 
+  const pipelineSteps: PipelineStepDef[] = useMemo(() => {
+    if (!result) return [];
+    return result.analysis_mode === 'fallback' ? getFallbackSteps(result) : getFullPhysicsSteps(result);
+  }, [result]);
+
+  const signalScores = useMemo(() => {
+    if (!result) return [];
+    const df = result.decision_factors || {};
+    const sb = result.faces?.[0]?.signal_breakdown;
+    if (result.analysis_mode === 'fallback') {
+      const fb = result.fallback_breakdown || {};
+      return [
+        { name: 'Frequency', value: fb.frequency ?? df.frequency ?? 0, weight: 0.30 },
+        { name: 'Wavelet', value: fb.wavelet ?? df.wavelet_score ?? 0, weight: 0.30 },
+        { name: 'ViT Score', value: fb.vit_score ?? df.vit_score ?? 0, weight: 0.40 },
+      ];
+    }
+    return [
+      { name: 'Specular', value: sb?.specular ?? df.specular ?? 0, weight: 0.10 },
+      { name: 'Frequency', value: sb?.frequency ?? df.frequency ?? 0, weight: 0.18 },
+      { name: 'Topology', value: sb?.topology ?? df.topology ?? 0, weight: 0.22 },
+      { name: 'Patch (PRNU)', value: sb?.patch_consistency ?? df.patch_consistency ?? 0, weight: 0.22 },
+      { name: 'Wavelet', value: sb?.wavelet_score ?? df.wavelet_score ?? 0, weight: 0.15 },
+      { name: 'ViT Score', value: sb?.vit_score ?? df.vit_score ?? 0, weight: 0.13 },
+    ];
+  }, [result]);
+
+  const getStepImage = (idx: number | undefined): string | null => {
+    if (idx === undefined || !result?.steps) return null;
+    return result.steps.find(s => s.step === idx)?.data || null;
+  };
+
+  const getOutputValue = (key: string | undefined): string => {
+    if (!key || !result) return '';
+    const df = result.decision_factors || {};
+    const fb = result.fallback_breakdown || {};
+    const v = (df as Record<string, number>)[key] ?? (fb as Record<string, number>)[key]
+      ?? (key === 'faces_detected' ? result.faces_detected : undefined);
+    return typeof v === 'number' ? v.toFixed(4) : String(v ?? '');
+  };
+
+  const verdictColorClass = result?.verdict?.toLowerCase() === 'real' ? 'textReal' : result?.verdict?.toLowerCase() === 'fake' ? 'textFake' : '';
   const matrix = diagnostics?.confusion_matrix;
-  const tn = matrix?.TN ?? 0;
-  const fp = matrix?.FP ?? 0;
-  const fn = matrix?.FN ?? 0;
-  const tp = matrix?.TP ?? 0;
-  const rowRealTotal = tn + fp;
-  const rowFakeTotal = fn + tp;
-  const colRealTotal = tn + fn;
-  const colFakeTotal = fp + tp;
+  const isFullPhysics = result?.analysis_mode !== 'fallback';
+  const df = result?.decision_factors || {};
+  const sb = result?.faces?.[0]?.signal_breakdown;
+  const cb = result?.calibration_breakdown || {};
+  const fb = result?.fallback_breakdown || {};
 
   return (
     <div className="page">
       <header className="header">
         <h1 className="title">Axiom-I</h1>
+        <p className="subtitle">Image Forensics Analysis System</p>
       </header>
 
       {error && <div className="errorBox">{error}</div>}
 
-      <section className="card workspaceCard">
-        <div className="cardHead">
-          <div>
-            <h2 className="cardTitle">Analysis Workspace</h2>
-            <p className="workspaceSubtitle">Image Forensic</p>
-          </div>
-        </div>
-
+      {/* Upload and Summary */}
+      <section className="card">
+        <div className="cardTitle">Analysis Workspace</div>
         <div className="workspaceGrid">
-          <div className="workspacePane">
-            <label
-              className={`uploadArea ${isDragging ? 'active' : ''}`}
-              htmlFor="upload-input"
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {!previewUrl ? (
-                <>
-                  <div className="uploadIconWrap">
-                    <svg className="uploadIcon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                  </div>
-                  <span className="uploadTitle">Upload Image</span>
-                  <span className="uploadSubtitle">Any image format up to 10MB</span>
-                </>
-              ) : (
+          <div>
+            <label className={`uploadArea ${isDragging ? 'active' : ''}`} htmlFor="upload-input"
+              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
+              onDrop={e => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files?.length) handleFileSelection(e.dataTransfer.files[0]); }}>
+              {!previewUrl ? (<>
+                <div className="uploadIconWrap">
+                  <svg className="uploadIcon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                </div>
+                <span className="uploadTitle">Upload Image</span>
+                <span className="uploadSubtitle">Any image format up to 10 MB</span>
+              </>) : (
                 <div className="previewBlock">
-                  <div className="previewInfo">
-                    <strong>{file?.name || 'Selected image'}</strong>
-                    <span>{toFileSize(file?.size || 0)}</span>
-                  </div>
-                  <div className="previewWrap">
-                    <Image src={previewUrl} alt="Selected image" width={1200} height={800} className="previewImage" unoptimized />
-                  </div>
+                  <div className="previewInfo"><strong>{file?.name || 'Selected image'}</strong><span>{toFileSize(file?.size || 0)}</span></div>
+                  <div className="previewWrap"><Image src={previewUrl} alt="Selected image" width={1200} height={800} className="previewImage" unoptimized /></div>
                 </div>
               )}
             </label>
-
-            <input
-              id="upload-input"
-              ref={fileInputRef}
-              className="hidden"
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                if (event.target.files && event.target.files.length > 0) {
-                  handleFileSelection(event.target.files[0]);
-                }
-              }}
-            />
-
-            <div className="rowButtons">
+            <input id="upload-input" ref={fileInputRef} className="hidden" type="file" accept="image/*" onChange={e => { if (e.target.files?.length) handleFileSelection(e.target.files[0]); }} />
+            <div className="rowButtons" style={{ marginTop: 10 }}>
               <button className="btn" onClick={resetAll} disabled={isAnalyzing || isSubmittingFeedback}>Reset</button>
-              <button className="btn primary" onClick={runAnalysis} disabled={isAnalyzing || !file}>
-                {isAnalyzing ? 'Analyzing...' : 'Analyze'}
-              </button>
+              <button className="btn primary" onClick={runAnalysis} disabled={isAnalyzing || !file}>{isAnalyzing ? 'Analyzing...' : 'Analyze'}</button>
             </div>
           </div>
-
-          <div className="workspacePane summaryPane">
+          <div className="summaryPane">
             <h3 className="subTitle">Result Summary</h3>
-            <div className="tableWrap">
-              <table className="table summaryTable">
-                <tbody>
-                  <tr>
-                    <th>File</th>
-                    <td>{file?.name || '-'}</td>
-                  </tr>
-                  <tr>
-                    <th>Verdict</th>
-                    <td className={verdictClassName(result?.verdict)}>{result?.verdict || '-'}</td>
-                  </tr>
-                  <tr>
-                    <th>Confidence</th>
-                    <td>{toPercent(result?.confidence)}</td>
-                  </tr>
-                  <tr>
-                    <th>Analysis Mode</th>
-                    <td>{result?.analysis_mode || '-'}</td>
-                  </tr>
-                  <tr>
-                    <th>Faces Detected</th>
-                    <td>{typeof result?.faces_detected === 'number' ? result.faces_detected : '-'}</td>
-                  </tr>
-                  <tr>
-                    <th>Final Score</th>
-                    <td>{toFixed(result?.full_image_score)}</td>
-                  </tr>
-                  <tr>
-                    <th>Heuristic Score</th>
-                    <td>{toFixed(result?.calibration_breakdown?.heuristic_score)}</td>
-                  </tr>
-                  <tr>
-                    <th>Learned Score</th>
-                    <td>{toFixed(result?.calibration_breakdown?.learned_score)}</td>
-                  </tr>
-                  <tr>
-                    <th>Model Weight</th>
-                    <td>{toFixed(result?.calibration_breakdown?.model_weight)}</td>
-                  </tr>
-                  <tr>
-                    <th>Training Samples</th>
-                    <td>{toDisplay(result?.calibration_breakdown?.training_samples)}</td>
-                  </tr>
-                  <tr>
-                    <th>Feedback Samples</th>
-                    <td>{toDisplay(result?.calibration_breakdown?.feedback_samples)}</td>
-                  </tr>
-                  <tr>
-                    <th>Feedback Weight Mean</th>
-                    <td>{toFixed(result?.calibration_breakdown?.feedback_weight_mean)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            {result ? (
+              <div className="tableWrap"><table className="table"><tbody>
+                <tr><th>Verdict</th><td className={verdictColorClass} style={{ fontWeight: 700 }}>{result.verdict}</td></tr>
+                <tr><th>Confidence</th><td>{toPercent(result.confidence)}</td></tr>
+                <tr><th>Analysis Mode</th><td>{result.analysis_mode === 'fallback' ? 'Fallback (no face detected)' : 'Full Physics (face detected)'}</td></tr>
+                <tr><th>Faces Detected</th><td>{result.faces_detected}</td></tr>
+                <tr><th>Final Score</th><td>{toFixed(df.final_score ?? result.full_image_score)}</td></tr>
+                <tr><th>Heuristic Score</th><td>{toFixed(cb.heuristic_score)}</td></tr>
+                <tr><th>Learned Score</th><td>{toFixed(cb.learned_score)}</td></tr>
+                <tr><th>Model Weight</th><td>{toFixed(cb.model_weight)}</td></tr>
+              </tbody></table></div>
+            ) : (
+              <div className="emptyState">Upload an image and click Analyze to see results.</div>
+            )}
           </div>
         </div>
       </section>
 
-      {result && (
-        <>
-          <section className="card">
-            <h2 className="cardTitle">Face Outputs</h2>
-            {result.faces.length > 0 ? (
-              <div className="faceGrid">
-                {result.faces.map((face, index) => (
-                  <div key={`face-${index}`} className="faceCard">
-                    <div className="faceHeader">
-                      <strong>Face {index + 1}</strong>
-                      <span className={verdictClassName(face.verdict)}>{face.verdict}</span>
+      {result && (<>
+        {/* Signal Scores with color coding */}
+        <section className="card">
+          <div className="cardTitle">Signal Anomaly Scores</div>
+          <p className="cardDesc">Each signal measures a different forensic property. Values closer to 1.0 indicate stronger evidence of manipulation. Green means safe, amber means moderate, and red means high anomaly.</p>
+          <div className="signalGrid">
+            {signalScores.map(s => {
+              const cls = signalColor(s.value);
+              return (
+                <div key={s.name} className="signalRow">
+                  <span className="signalName">{s.name} <span className="signalWeight">(w={s.weight})</span></span>
+                  <div className="signalTrack"><div className={`signalFill ${cls}`} style={{ width: `${Math.min(s.value * 100, 100)}%` }} /></div>
+                  <span className={`signalValue ${cls}`}>{s.value.toFixed(4)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Execution Pipeline with KaTeX */}
+        <section className="card">
+          <div className="cardTitle">Execution Pipeline: File by File</div>
+          <p className="cardDesc">Complete execution flow of the analysis. Each step corresponds to a Python file. Data flows top to bottom.</p>
+          <div className="pipelineFlow">
+            {pipelineSteps.map((step, i) => {
+              const img = getStepImage(step.imageStepIndex);
+              const outVal = getOutputValue(step.outputKey);
+              return (
+                <div key={i} className="pipelineStep">
+                  <div className="stepIndicator">
+                    <div className="stepBadge">{i + 1}</div>
+                    <div className="stepLine" />
+                  </div>
+                  <div className="stepContent">
+                    <div className="stepHeader">
+                      <span className="stepFileName">{step.file}</span>
+                      <span className="stepTitle">{step.title}</span>
                     </div>
-                    <div className="tableWrap">
-                      <table className="table">
-                        <tbody>
-                          <tr>
-                            <th>Bounding Box</th>
-                            <td>{Array.isArray(face.bbox) ? face.bbox.join(', ') : '-'}</td>
-                          </tr>
-                          <tr>
-                            <th>Detection Confidence</th>
-                            <td>{toPercent(face.confidence)}</td>
-                          </tr>
-                          <tr>
-                            <th>Face Score</th>
-                            <td>{toFixed(face.score)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <h3 className="subTitle">Signal Breakdown</h3>
-                    {face.signal_breakdown ? (
-                      <div className="tableWrap">
-                        <table className="table">
-                          <tbody>
-                            {Object.entries(face.signal_breakdown).map(([key, value]) => (
-                              <tr key={`${index}-${key}`}>
-                                <th>{formatLabel(key)}</th>
-                                <td>{toFixed(value)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    <div className="stepDesc">{step.desc}</div>
+                    {img && (<div className="stepImageWrap"><Image src={img} alt={step.title} width={220} height={150} className="stepImage" unoptimized /></div>)}
+                    {step.latex && step.latex.length > 0 && (
+                      <div className="formulaBlock">
+                        <span className="formulaLabel">Formula</span>
+                        {step.latex.map((tex, j) => (
+                          <div key={j} style={{ marginBottom: 4 }}><Tex math={tex} block /></div>
+                        ))}
                       </div>
-                    ) : (
-                      <div className="emptyState">No signal breakdown available.</div>
+                    )}
+                    {step.formulaComputed && (
+                      <div className="formulaBlock">
+                        <span className="formulaLabel">Computed</span>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem', whiteSpace: 'pre-wrap' }}>{step.formulaComputed}</span>
+                      </div>
+                    )}
+                    {step.outputLabel && outVal && (
+                      <div className="stepOutput"><span className="stepOutputLabel">{step.outputLabel}:</span><span className="stepOutputValue">{outVal}</span></div>
                     )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="emptyState">No face outputs available in this run.</div>
-            )}
-          </section>
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
-          <section className="card">
-            <h2 className="cardTitle">Inputs and Components</h2>
-            <div className="metaGrid">
-              <div className="metaPanel">
-                <h3>Input Shape</h3>
-                <p>{Array.isArray(result.process_inputs?.image_shape) ? result.process_inputs.image_shape.join(' x ') : '-'}</p>
-              </div>
-              <div className="metaPanel">
-                <h3>Pipeline Mode</h3>
-                <p>{result.process_inputs?.analysis_mode || result.analysis_mode || '-'}</p>
+        <section className="card">
+          <div className="cardTitle" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>How the decision is made</span>
+            <button className="linkBtn" onClick={() => {
+              sessionStorage.setItem('axiom_result', JSON.stringify(result));
+              window.open('/math', '_blank');
+            }}>
+              View full mathematics
+            </button>
+          </div>
+          <p className="cardDesc">Summary of the mathematical derivation showing how the final verdict of <strong className={verdictColorClass}>{result.verdict}</strong> with {toPercent(result.confidence)} confidence was computed. Click the button above to see the complete step-by-step calculations with all variable values.</p>
+
+          <div className="mathSection">
+            <div className="mathSectionTitle">1. Sigmoid Function</div>
+            <p className="mathText">All anomaly scores use the sigmoid function to map raw values to [0, 1]:</p>
+            <div className="formulaBlock"><Tex math="\sigma(x) = \frac{1}{1 + e^{-x}}" block /></div>
+          </div>
+
+          {isFullPhysics ? (<>
+            <div className="mathSection">
+              <div className="mathSectionTitle">2. Individual Signal Scores</div>
+              <p className="mathText">Each forensic module computes an anomaly score using shifted sigmoid functions:</p>
+              <div className="formulaBlock">
+                <Tex math={`\\text{Specular} = \\sigma\\big(15 \\cdot (\\text{NCC} - 0.30)\\big) = ${f(df.specular)}`} block />
+                <Tex math={`\\text{Frequency} = \\sigma\\big(-3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${f(df.frequency)}`} block />
+                <Tex math={`\\text{Topology} = \\sigma\\big(0.11 \\cdot (C - 18)\\big) = ${f(df.topology)}`} block />
+                <Tex math={`\\text{Patch} = \\sigma\\big(-20 \\cdot (\\text{CV} - 0.25)\\big) = ${f(df.patch_consistency)}`} block />
+                <Tex math={`\\text{Wavelet} = \\sigma\\big(3 \\cdot (\\ln(1 + E_{\\text{avg}}) - 4.5)\\big) = ${f(df.wavelet_score)}`} block />
+                <Tex math={`\\text{ViT} = \\text{softmax}(\\text{logits})[\\text{fake}] = ${f(df.vit_score)}`} block />
               </div>
             </div>
-            <h3 className="subTitle">Components Used</h3>
-            <div className="chips">
-              {processComponents.length > 0 ? processComponents.map((component) => (
-                <span key={component} className="chip">{formatLabel(component)}</span>
-              )) : <span className="muted">No component data</span>}
+
+            <div className="mathSection">
+              <div className="mathSectionTitle">3. Noisy-OR Fusion</div>
+              <p className="mathText">The six signals are fused using the Noisy-OR probabilistic model. Each signal has an assigned weight. The probability that all signals indicate the image is real is the product of individual real probabilities:</p>
+              <div className="formulaBlock">
+                <Tex math="P(\text{all real}) = \prod_{i=1}^{6} \big(1 - w_i \cdot s_i\big)" block />
+                <Tex math={`\\text{ensemble} = 1 - P(\\text{all real}) = ${f(sb?.physics_ensemble)}`} block />
+                <Tex math={`\\text{heuristic} = \\sigma\\big(8 \\cdot (\\text{ensemble} - 0.40)\\big) = ${f(df.heuristic_score)}`} block />
+              </div>
+              <p className="mathText">Weights: specular = 0.10, frequency = 0.18, topology = 0.22, patch = 0.22, wavelet = 0.15, ViT = 0.13</p>
             </div>
-            <h3 className="subTitle">Feature Names</h3>
-            <div className="chips">
-              {processFeatureNames.length > 0 ? processFeatureNames.map((name) => (
-                <span key={name} className="chip">{formatLabel(name)}</span>
-              )) : <span className="muted">No feature names available</span>}
+          </>) : (
+            <div className="mathSection">
+              <div className="mathSectionTitle">2. Fallback Signal Fusion</div>
+              <p className="mathText">Without a detected face, three signals are combined using fixed weights:</p>
+              <div className="formulaBlock">
+                <Tex math={`\\text{combined} = 0.30 \\cdot ${f(fb.frequency)} + 0.30 \\cdot ${f(fb.wavelet)} + 0.40 \\cdot ${f(fb.vit_score)} = ${f(fb.combined)}`} block />
+                <Tex math={`\\text{heuristic} = \\sigma\\big(8 \\cdot (${f(fb.combined)} - 0.45)\\big) = ${f(fb.calibrated)}`} block />
+              </div>
             </div>
-          </section>
+          )}
 
-          <section className="card">
-            <h2 className="cardTitle">Quality Metrics</h2>
-            {qualityMetricEntries.length > 0 ? (
-              <div className="tableWrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Metric</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {qualityMetricEntries.map(([key, value]) => (
-                      <tr key={key}>
-                        <td>{formatLabel(key)}</td>
-                        <td>{toFixed(value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="emptyState">No quality metric data available.</div>
-            )}
-          </section>
-
-          <section className="card">
-            <h2 className="cardTitle">Decision Factors</h2>
-            {decisionFactorEntries.length > 0 ? (
-              <div className="tableWrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Factor</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {decisionFactorEntries.map(([key, value]) => (
-                      <tr key={key}>
-                        <td>{formatLabel(key)}</td>
-                        <td>{toFixed(value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="emptyState">No decision factors available.</div>
-            )}
-          </section>
-
-          <section className="card">
-            <h2 className="cardTitle">Calibration Breakdown</h2>
-            {calibrationBreakdownEntries.length > 0 ? (
-              <div className="tableWrap">
-                <table className="table">
-                  <tbody>
-                    {calibrationBreakdownEntries.map(([key, value]) => (
-                      <tr key={key}>
-                        <th>{formatLabel(key)}</th>
-                        <td>{toDisplay(value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="emptyState">No calibration breakdown available.</div>
-            )}
-          </section>
-
-          <section className="card">
-            <h2 className="cardTitle">Fallback Breakdown</h2>
-            {fallbackBreakdownEntries.length > 0 ? (
-              <div className="tableWrap">
-                <table className="table">
-                  <tbody>
-                    {fallbackBreakdownEntries.map(([key, value]) => (
-                      <tr key={key}>
-                        <th>{formatLabel(key)}</th>
-                        <td>{toFixed(value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="emptyState">Fallback breakdown is not present for this run.</div>
-            )}
-          </section>
-
-          <section className="card">
-            <h2 className="cardTitle">Feature Vector</h2>
-            {featureVectorRows.length > 0 ? (
-              <div className="tableWrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Index</th>
-                      <th>Name</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {featureVectorRows.map((row) => (
-                      <tr key={`fv-${row.index}`}>
-                        <td>{row.index}</td>
-                        <td>{formatLabel(row.name)}</td>
-                        <td>{toFixed(row.value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="emptyState">No feature vector available.</div>
-            )}
-          </section>
-
-          <section className="card">
-            <h2 className="cardTitle">Feedback and Diagnostics</h2>
-            <div className="feedbackActions">
-              <button className="btn textReal" onClick={() => submitFeedback('Real')} disabled={isSubmittingFeedback}>Mark Real</button>
-              <button className="btn textFake" onClick={() => submitFeedback('Fake')} disabled={isSubmittingFeedback}>Mark Fake</button>
+          <div className="mathSection">
+            <div className="mathSectionTitle">{isFullPhysics ? '4' : '3'}. Calibration Blend</div>
+            <p className="mathText">A machine learning model produces a learned score. This is blended with the heuristic using an adaptive weight that increases with more feedback data:</p>
+            <div className="formulaBlock">
+              <Tex math="w = \begin{cases} 0 & \text{if feedback} < 15 \\ \text{clamp}(0.10 + 0.02 \cdot (n - 15),\; 0,\; 0.80) & \text{otherwise} \end{cases}" block />
+              <Tex math="\text{final} = w \cdot \text{learned} + (1 - w) \cdot \text{heuristic}" block />
+              <Tex math={`= ${f(cb.model_weight)} \\times ${f(cb.learned_score)} + ${f(typeof cb.model_weight === 'number' ? 1 - cb.model_weight : undefined)} \\times ${f(cb.heuristic_score)} = ${f(df.final_score)}`} block />
             </div>
+          </div>
 
-            {feedbackStatus && (
-              <div className="statusBox">
-                <div>{feedbackStatus.message}</div>
-                <div>
-                  Training Eligible: {feedbackStatus.trainingEligible ? 'Yes' : 'No'}
-                  {!feedbackStatus.trainingEligible && feedbackStatus.exclusionReason ? ` (${feedbackStatus.exclusionReason})` : ''}
-                </div>
-                <div>
-                  Trust Score: {typeof feedbackStatus.trustScore === 'number' ? toPercent(feedbackStatus.trustScore) : '-'}
-                </div>
-                <div>
-                  Sample Weight: {typeof feedbackStatus.sampleWeight === 'number' ? toFixed(feedbackStatus.sampleWeight, 2) : '-'}
-                </div>
-              </div>
-            )}
+          <div className="mathSection">
+            <div className="mathSectionTitle">{isFullPhysics ? '5' : '4'}. Final Decision</div>
+            <div className="formulaBlock">
+              <Tex math='\text{verdict} = \begin{cases} \text{Fake} & \text{if } \text{score} \geq 0.50 \\ \text{Real} & \text{if } \text{score} < 0.50 \end{cases}' block />
+              <Tex math={`\\text{confidence} = |\\text{score} - 0.50| \\times 2 = |${f(df.final_score)} - 0.50| \\times 2 = ${toPercent(result.confidence)}`} block />
+            </div>
+            <p className="mathText">Result: <strong className={verdictColorClass}>{result.verdict}</strong> with {toPercent(result.confidence)} confidence (score = {f(df.final_score)})</p>
+          </div>
+        </section>
 
-            {diagnostics ? (
-              <div className="diagnosticsStack">
-                <div className="tableWrap">
-                  <table className="table matrixTable">
-                    <thead>
-                      <tr>
-                        <th>Actual / Predicted</th>
-                        <th>Real</th>
-                        <th>Fake</th>
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <th className="textReal">Real</th>
-                        <td>{tn}</td>
-                        <td>{fp}</td>
-                        <td>{rowRealTotal}</td>
-                      </tr>
-                      <tr>
-                        <th className="textFake">Fake</th>
-                        <td>{fn}</td>
-                        <td>{tp}</td>
-                        <td>{rowFakeTotal}</td>
-                      </tr>
-                      <tr>
-                        <th>Total</th>
-                        <td>{colRealTotal}</td>
-                        <td>{colFakeTotal}</td>
-                        <td>{matrix?.total ?? rowRealTotal + rowFakeTotal}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+        {/* Feedback */}
+        <section className="card">
+          <div className="cardTitle">Feedback</div>
+          <p className="cardDesc">Was the prediction correct? Your feedback improves the calibration model.</p>
+          <div className="feedbackActions">
+            <button className="btn textReal" onClick={() => submitFeedback('Real')} disabled={isSubmittingFeedback}>Mark as Real</button>
+            <button className="btn textFake" onClick={() => submitFeedback('Fake')} disabled={isSubmittingFeedback}>Mark as Fake</button>
+          </div>
+          {feedbackStatus && (<div className="statusBox"><div>{feedbackStatus.message}</div><div>Training Eligible: {feedbackStatus.trainingEligible ? 'Yes' : `No (${feedbackStatus.exclusionReason || 'unknown'})`}</div></div>)}
+        </section>
 
-                <div className="tableWrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Calibration Metric</th>
-                        <th>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {diagnosticsCalibrationEntries.map(([key, value]) => (
-                        <tr key={`metric-${key}`}>
-                          <td>{formatLabel(key)}</td>
-                          <td>{formatMetricValue(key, value)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {diagnosticsBins.length > 0 && (
-                  <div className="tableWrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Bin</th>
-                          <th>Count</th>
-                          <th>Accuracy</th>
-                          <th>Confidence</th>
-                          <th>Gap</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {diagnosticsBins.map((bin, index) => (
-                          <tr key={`bin-${index}`}>
-                            <td>{`${bin.bin_start.toFixed(2)} to ${bin.bin_end.toFixed(2)}`}</td>
-                            <td>{bin.count}</td>
-                            <td>{toPercent(bin.accuracy)}</td>
-                            <td>{toPercent(bin.confidence)}</td>
-                            <td>{toPercent(bin.gap)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                <div className="tableWrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Feedback Summary</th>
-                        <th>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>Total Feedback Records</td>
-                        <td>{diagnostics.feedback_summary.total_feedback_records}</td>
-                      </tr>
-                      <tr>
-                        <td>Training Eligible Records</td>
-                        <td>{diagnostics.feedback_summary.training_eligible_records}</td>
-                      </tr>
-                      <tr>
-                        <td>Training Excluded Records</td>
-                        <td>{diagnostics.feedback_summary.training_excluded_records}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="tableWrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Exclusion Reason</th>
-                        <th>Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {exclusionReasonEntries.length > 0 ? exclusionReasonEntries.map(([key, value]) => (
-                        <tr key={`reason-${key}`}>
-                          <td>{formatLabel(key)}</td>
-                          <td>{value}</td>
-                        </tr>
-                      )) : (
-                        <tr>
-                          <td colSpan={2}>No exclusions recorded.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="tableWrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Trust Summary</th>
-                        <th>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trustSummaryEntries.length > 0 ? trustSummaryEntries.map(([key, value]) => (
-                        <tr key={`trust-${key}`}>
-                          <td>{formatLabel(key)}</td>
-                          <td>{formatMetricValue(key, value)}</td>
-                        </tr>
-                      )) : (
-                        <tr>
-                          <td colSpan={2}>No trust summary available.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="tableWrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Timestamp</th>
-                        <th>Samples</th>
-                        <th>Brier</th>
-                        <th>ECE</th>
-                        <th>MCE</th>
-                        <th>FP</th>
-                        <th>FN</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {calibrationHistoryRows.length > 0 ? calibrationHistoryRows.map((row, index) => (
-                        <tr key={`history-${index}`}>
-                          <td>{toDisplay(row.timestamp)}</td>
-                          <td>{toDisplay(row.total_samples)}</td>
-                          <td>{toDisplay(row.brier_score)}</td>
-                          <td>{toDisplay(row.ece)}</td>
-                          <td>{toDisplay(row.mce)}</td>
-                          <td>{toDisplay(row.fp)}</td>
-                          <td>{toDisplay(row.fn)}</td>
-                        </tr>
-                      )) : (
-                        <tr>
-                          <td colSpan={7}>No calibration history available.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="emptyState">No feedback diagnostics available.</div>
-            )}
-          </section>
-
+        {/* System Diagnostics (no accordion, flat section) */}
+        {diagnostics && (
           <section className="card">
-            <h2 className="cardTitle">Process Steps</h2>
-            {result.steps.length > 0 ? (
-              <div className="stepsGrid">
-                {result.steps.map((step) => (
-                  <div key={step.step} className="stepCard">
-                    <Image src={step.data} alt={step.label} width={320} height={180} className="stepImage" unoptimized />
-                    <div className="stepMeta">
-                      <strong>Step {step.step}</strong>
-                      <span>{step.label}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="emptyState">No pipeline step visualizations available.</div>
-            )}
+            <div className="cardTitle">System Diagnostics</div>
+            <div className="tableWrap"><table className="table matrixTable">
+              <thead><tr><th>Actual / Predicted</th><th>Real</th><th>Fake</th></tr></thead>
+              <tbody>
+                <tr><th className="textReal">Real</th><td>{matrix?.TN ?? 0}</td><td>{matrix?.FP ?? 0}</td></tr>
+                <tr><th className="textFake">Fake</th><td>{matrix?.FN ?? 0}</td><td>{matrix?.TP ?? 0}</td></tr>
+              </tbody>
+            </table></div>
+            <p className="cardDesc">Total Feedback: {diagnostics.feedback_summary.total_feedback_records} | Training Eligible: {diagnostics.feedback_summary.training_eligible_records}</p>
           </section>
-
-          <section className="card">
-            <h2 className="cardTitle">How System Works</h2>
-            <ul className="explainList">
-              {(result.explanation || []).map((line, index) => (
-                <li key={`explain-${index}`}>{line}</li>
-              ))}
-              <li>Decision rule: final_score &gt;= 0.50 means Fake, otherwise Real.</li>
-              <li>Confidence formula: confidence = |final_score - 0.5| * 2.</li>
-              <li>Calibration formula: final_score = model_weight * learned_score + (1 - model_weight) * heuristic_score.</li>
-              <li>Pipeline mode in this run: {result.analysis_mode || '-'}</li>
-            </ul>
-          </section>
-        </>
-      )}
+        )}
+      </>)}
     </div>
   );
 }

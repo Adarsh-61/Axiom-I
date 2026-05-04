@@ -9,16 +9,18 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/katex": "^0.16.8",
+    "katex": "^0.16.45",
+    "next": "^16.2.2",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "next": "^16.2.2"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "^16.2.2"
+    "eslint-config-next": "^16.2.2",
+    "typescript": "^5"
   }
 }

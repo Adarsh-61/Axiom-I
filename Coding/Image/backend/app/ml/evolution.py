@@ -35,9 +35,9 @@ _MAX_CALIBRATION_HISTORY = 500
 _MAX_QUARANTINE_RECORDS = 2000
 _MIN_NONLINEAR_SAMPLES = 24
 _MIN_NONLINEAR_CLASS_COUNT = 6
-_POISON_SIGMA_THRESHOLD = 3.0
-_POISON_MAX_FEATURE_OUTLIERS = 2
-_POISON_CLASS_DISTANCE_MARGIN = 0.15
+_POISON_SIGMA_THRESHOLD = 4.0
+_POISON_MAX_FEATURE_OUTLIERS = 5
+_POISON_CLASS_DISTANCE_MARGIN = 0.50
 _TRUST_DEFAULT_USER_ID = "anonymous"
 _TRUST_PRIOR_ALPHA = 2.0
 _TRUST_PRIOR_BETA = 2.0
@@ -836,15 +836,21 @@ def calibrate_prediction(feature_vector: list[float] | None, heuristic_score: fl
     feedback_count = int(meta["feedback_samples"])
     training_samples = int(meta["samples"])
 
-                                                                         
-                                    
-    model_weight = 0.80 + (0.002 * min(feedback_count, 50))
+    # Trust-based model weighting: the learned model gets ZERO weight
+    # until it has enough feedback to prove itself. This prevents
+    # a poorly-trained model from overriding the physics heuristic.
+    _MIN_FEEDBACK_FOR_TRUST = 15
+    if feedback_count < _MIN_FEEDBACK_FOR_TRUST:
+        model_weight = 0.0
+    else:
+        # Gradually ramp up: starts at 0.10 when feedback=15,
+        # increases by 0.02 per additional feedback, caps at 0.80
+        model_weight = 0.10 + (0.02 * min(feedback_count - _MIN_FEEDBACK_FOR_TRUST, 35))
 
-                                                        
     if training_samples < 12:
-        model_weight = min(model_weight, 0.70)
+        model_weight = min(model_weight, 0.10)
 
-    model_weight = min(0.90, max(0.60, model_weight))
+    model_weight = min(0.80, max(0.0, model_weight))
     calibrated = (model_weight * learned) + ((1.0 - model_weight) * heuristic)
 
     return {
