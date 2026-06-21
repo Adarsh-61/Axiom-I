@@ -1,4 +1,15 @@
+---
+title: Axiom Backend
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Axiom-I Backend API Guide
+
 
 This file is a backend-only guide for Axiom-I.
 It explains setup, run steps, API usage, response formats, rate limits, and calibration behavior.
