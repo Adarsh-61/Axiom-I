@@ -63,8 +63,8 @@ async def submit_feedback(request: Request, payload: FeedbackRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
-        logger.error(f"Failed to process feedback: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to process feedback: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/feedback/metrics", response_model=FeedbackDiagnosticsResponse)
@@ -73,5 +73,6 @@ async def get_feedback_metrics(request: Request):
     try:
         return FeedbackDiagnosticsResponse(**get_feedback_diagnostics())
     except Exception as e:
-        logger.error(f"Failed to load feedback diagnostics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to load feedback diagnostics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+

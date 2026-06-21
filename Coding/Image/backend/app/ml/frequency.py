@@ -65,7 +65,7 @@ def calculate_frequency_anomaly(img: np.ndarray) -> float:
                                                                     
                                                                   
                                                                          
-        anomaly = float(1.0 / (1.0 + np.exp(3.0 * (log_hfer + 4.5))))
+        anomaly = float(1.0 / (1.0 + np.exp(-3.0 * (log_hfer + 4.5))))
         
         logger.info(f"Frequency HFER: Log-Ratio={log_hfer:.3f} → Anomaly={anomaly:.2f}")
         return anomaly

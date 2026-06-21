@@ -198,8 +198,9 @@ html, body {
   padding: 10px 14px; font-size: 0.8125rem; color: var(--fake);
 }
 .emptyState {
-  border: 1px solid var(--border); padding: 12px; border-radius: 4px;
+  border: 1px solid var(--border); padding: 24px 20px; border-radius: var(--radius);
   font-size: 0.8125rem; color: var(--text-muted); background: var(--surface);
+  text-align: center;
 }
 .textReal { color: var(--real); }
 .textFake { color: var(--fake); }
@@ -269,13 +270,6 @@ html, body {
   padding: 6px 14px; cursor: pointer; text-decoration: none;
 }
 .linkBtn:hover { background: #a51c1a; }
-.emptyState {
-  text-align: center; padding: 40px 20px; color: var(--text);
-  font-size: 0.875rem; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.textFake { color: var(--fake); }
-.textReal { color: var(--real); }
 
 @media (max-width: 960px) {
   .workspaceGrid { grid-template-columns: 1fr; }

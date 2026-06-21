@@ -8,10 +8,12 @@ logger = logging.getLogger(__name__)
 
 def calculate_wavelet_anomaly(image: np.ndarray, wavelet='db2', level=2) -> float:
     try:
-        if image.shape[2] == 3:
+        if image.ndim == 3 and image.shape[2] == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        elif image.ndim == 3 and image.shape[2] == 4:
+            gray = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
         else:
-            gray = image
+            gray = image if image.ndim == 2 else image
 
                                     
         coeffs = pywt.wavedec2(gray, wavelet=wavelet, level=level)

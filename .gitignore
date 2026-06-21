@@ -49,6 +49,11 @@ Coding/Image/backend/app/ml/feedback_data/feedback_log.json
 Coding/Image/backend/app/ml/feedback_data/calibration_history.json
 Coding/Image/backend/app/ml/feedback_data/calibration_metrics.json
 Coding/Image/backend/app/ml/feedback_data/quarantine_log.json
+Coding/Image/backend/app/ml/feedback_data/confusion_matrix.json
+Coding/Image/backend/app/ml/feedback_data/seed_features.json
+Coding/Image/backend/app/ml/video_feedback_db.json
+Coding/Image/backend/app/ml/video_calibration_db.json
+
 
 # External reference PDFs (kept out of source repository)
 Documents/Image/Research Papers/
@@ -57,3 +62,6 @@ Documents/Image/Research Papers/
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Project Documentation
+Axiom_I_Project_Report.txt

@@ -3,7 +3,7 @@ from typing import List
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Axiom-I Image Forensics"
+    PROJECT_NAME: str = "Axiom-I Media Forensics"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
 
@@ -15,8 +15,12 @@ class Settings(BaseSettings):
     VIT_MODEL_NAME: str = "prithivMLmods/Deep-Fake-Detector-v2-Model"
 
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
-    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024
+    MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024
     MAX_IMAGE_PIXELS: int = 20_000_000
+
+    MODE: str = "local"
+    HF_TOKEN: str = ""
+    HF_DATASET_PATH: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AXIOM_", extra="ignore")
 

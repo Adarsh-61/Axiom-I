@@ -134,8 +134,11 @@ Main endpoints:
 - GET / : basic service info.
 - GET /api/v1/health : health check.
 - POST /api/v1/analyze : analyze one image.
-- POST /api/v1/feedback : submit user feedback.
+- POST /api/v1/analyze/video : analyze one video (physics-based).
+- POST /api/v1/feedback : submit user image feedback.
+- POST /api/v1/feedback/video : submit user video feedback.
 - GET /api/v1/feedback/metrics : confusion matrix and calibration metrics.
+
 
 ## 8. Training and Calibration
 

@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Tex } from '../Tex';
-import type { AnalysisResponse } from '../helpers';
+import { AnalysisResponse, getVideoPhysicsSteps } from '../helpers';
 
 const f = (v: number | undefined) => typeof v === 'number' ? v.toFixed(4) : '?';
 
 export default function MathPage() {
+  const router = useRouter();
   const [r, setR] = useState<AnalysisResponse | null>(null);
 
   useEffect(() => {
@@ -21,25 +23,54 @@ export default function MathPage() {
   const fb = r?.fallback_breakdown || {};
   const face = r?.faces?.[0];
   const sb = face?.signal_breakdown;
-  const isPhysics = r?.analysis_mode !== 'fallback';
+  const isVideo = r?.analysis_mode?.startsWith('video');
+  const isPhysics = r?.analysis_mode !== 'fallback' && !isVideo;
+
+  const renderVideoMath = () => {
+    if (!r || !isVideo) return null;
+    const steps = getVideoPhysicsSteps(r);
+    return steps.map((step, idx) => (
+      <div className="deepStep" key={`video_step_${idx}`}>
+        <div className="deepStepHeader">
+          <div className="deepStepNum">{idx + 1}</div>
+          <span className="deepStepFile">{step.file}</span>
+          <h2 className="deepStepTitle">{step.title}</h2>
+        </div>
+        <p className="deepDesc">{step.desc}</p>
+        <div className="derivBlock">
+          {step.latex?.map((lx, i) => (
+            <Tex math={lx} block key={i} />
+          ))}
+        </div>
+      </div>
+    ));
+  };
 
   return (
     <div className="mathPage">
       <div className="mathPageHeader">
-        <button className="backLink" onClick={() => window.close()}>&#8592; Back to analysis workspace</button>
+        <button className="backLink" onClick={() => {
+          if (typeof window !== 'undefined' && (window.opener || window.history.length === 1)) {
+            window.close();
+          } else {
+            router.push('/');
+          }
+        }}>&#8592; Back to analysis workspace</button>
         <h1 className="mathPageTitle">The real math behind every decision</h1>
         <p className="mathPageSub">
-          A complete, step-by-step walkthrough of how Axiom-I analyzes an image and arrives at its final verdict. Every formula, every variable, and every value is explained below in the exact order the system processes them.
-          {r && <> This analysis used <strong>{isPhysics ? 'Full Physics' : 'Fallback'}</strong> mode
+          A complete, step-by-step walkthrough of how Axiom-I analyzes an image or video and arrives at its final verdict. Every formula, every variable, and every value is explained below in the exact order the system processes them.
+          {r && <> This analysis used <strong>{isVideo ? (r.analysis_mode === 'video_full' ? 'Video Physics' : 'Video Fallback') : isPhysics ? 'Full Physics' : 'Fallback'}</strong> mode
           and produced a verdict of <strong className={r.verdict === 'Fake' ? 'textFake' : 'textReal'}>{r.verdict}</strong> with {(r.confidence * 100).toFixed(1)}% confidence.</>}
         </p>
       </div>
 
       {!r && (
         <div className="emptyState">
-          No analysis data found. Please go to the main page, analyze an image, and then click the "View full mathematics" button.
+           No analysis data found. Please go to the main page, analyze an image or video, and then click the "View full mathematics" button.
         </div>
       )}
+
+      {renderVideoMath()}
 
       {/* STEP 1: Face Detection */}
       {r && isPhysics && (
@@ -271,7 +302,7 @@ export default function MathPage() {
             <p className="derivStep">3. The frequencies are organized into rings based on how far they are from the center. Frequencies near the center are low (smooth, gradual changes). Frequencies far from the center are high (sharp edges, fine details). The inner 15% of the radius is considered low-frequency, and the outer 30% is considered high-frequency.</p>
             <Tex math="\text{HFER} = \frac{\sum \text{Power in high-frequency ring}}{\sum \text{Power in low-frequency ring}}" block />
             <p className="derivStep">4. Map the log of HFER to an anomaly probability. The sigmoid has steepness 3.0 and center point at log10(HFER) = -4.5:</p>
-            <Tex math={`\\text{Anomaly} = \\frac{1}{1 + e^{3.0 \\times (\\log_{10}(\\text{HFER}) + 4.5)}} = ${f(isPhysics ? df.frequency : fb.frequency)}`} block />
+            <Tex math={`\\text{Anomaly} = \\frac{1}{1 + e^{-3.0 \\times (\\log_{10}(\\text{HFER}) + 4.5)}} = ${f(isPhysics ? df.frequency : fb.frequency)}`} block />
           </div>
           {(df.frequency !== undefined || fb.frequency !== undefined) && (
             <div className="derivBlock">
@@ -432,7 +463,7 @@ export default function MathPage() {
       )}
 
       {/* Fallback: Weighted Combination */}
-      {r && !isPhysics && (
+      {r && !isPhysics && !isVideo && (
         <div className="deepStep">
           <div className="deepStepHeader">
             <div className="deepStepNum">4</div>
@@ -449,7 +480,7 @@ export default function MathPage() {
       )}
 
       {/* STEP 13: Calibration */}
-      {r && (
+      {r && !isVideo && (
         <div className="deepStep">
           <div className="deepStepHeader">
             <div className="deepStepNum">{isPhysics ? 13 : 5}</div>
@@ -474,7 +505,7 @@ export default function MathPage() {
       )}
 
       {/* STEP 14: Final Verdict */}
-      {r && (
+      {r && !isVideo && (
         <div className="deepStep">
           <div className="deepStepHeader">
             <div className="deepStepNum">{isPhysics ? 14 : 6}</div>

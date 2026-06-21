@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Axiom-I | Image Forensics',
+  title: 'Axiom-I | Media Forensics',
   description:
-    'Deepfake detection through physics-based image forensics. Specular residual analysis, frequency domain inspection, wavelet decomposition, and ViT classification.',
+    'Deepfake detection through physics-based media forensics. Specular residual analysis, frequency domain inspection, wavelet decomposition, ViT classification, optical flow boundary analysis, rPPG biological consistency, and temporal anomaly detection for both images and videos.',
 };
 
 export default function RootLayout({

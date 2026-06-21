@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.api.routes import router as api_router
 from app.api.feedback import router as feedback_router
+from app.api.video_api import router as video_router
 from app.security.middleware import SecurityHeadersMiddleware
 from app.security.rate_limiter import limiter
 import logging
@@ -31,9 +32,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Model warmup skipped due to initialization error: {e}")
 
-    logger.info("Axiom-I Image Forensics Backend started successfully.")
+    logger.info("Axiom-I Media Forensics Backend started successfully.")
     yield
-    logger.info("Axiom-I Image Forensics Backend shutting down.")
+    logger.info("Axiom-I Media Forensics Backend shutting down.")
 
 
 app = FastAPI(
@@ -58,6 +59,7 @@ app.add_middleware(
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.include_router(feedback_router, prefix=settings.API_V1_STR)
+app.include_router(video_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")

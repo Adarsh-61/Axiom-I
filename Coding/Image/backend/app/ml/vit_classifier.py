@@ -48,7 +48,8 @@ class ViTClassifier:
             self.fake_label_id = 0           
             for idx, label in self.model.config.id2label.items():
                 label_lower = str(label).lower()
-                if 'fake' in label_lower or 'synthetic' in label_lower or 'deepfake' in label_lower:
+                target_words = ['fake', 'synthetic', 'deepfake', 'spoof', 'altered', 'manipulated', 'forged', 'tampered', 'generated']
+                if any(word in label_lower for word in target_words):
                     self.fake_label_id = int(idx)
                     break
 

@@ -45,7 +45,7 @@ def calculate_patch_anomaly(img: np.ndarray, grid_size: int = 4) -> float:
                                                                   
                                                               
                                                                             
-        anomaly = float(1.0 / (1.0 + np.exp(20.0 * (cv - 0.25))))
+        anomaly = float(1.0 / (1.0 + np.exp(-20.0 * (cv - 0.25))))
         
         logger.info(f"Physics Laplacian PRNU: CV={cv:.3f} → Anomaly={anomaly:.3f}")
         return anomaly

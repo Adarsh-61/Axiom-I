@@ -57,6 +57,7 @@ _MODEL_CACHE: dict[str, Any] = {
     "feedback_weight_mean": 0.0,
 }
 _MODEL_CACHE_LOCK = threading.Lock()
+_DB_LOCK = threading.RLock()
 _MODEL_REFRESH_THREAD: threading.Thread | None = None
 _SEED_STATS_CACHE: dict[str, Any] = {
     "seed_mtime": None,
@@ -68,34 +69,15 @@ def _ensure_dir():
     os.makedirs(_FEEDBACK_DIR, exist_ok=True)
 
 
+from app.ml.storage_provider import load_json_data, save_json_data
+
 def _load_json(path: str, default):
-    try:
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load JSON {path}: {e}")
-    return default
+    return load_json_data(os.path.basename(path), default)
 
 
 def _save_json(path: str, payload):
-    _ensure_dir()
-    target_dir = os.path.dirname(path) or _FEEDBACK_DIR
-    tmp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", dir=target_dir, delete=False) as tmp:
-            json.dump(payload, tmp, indent=2)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp_path = tmp.name
+    save_json_data(os.path.basename(path), payload)
 
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
 
 
 def _append_quarantine_record(record: dict, reason: str):
@@ -998,69 +980,71 @@ def record_feedback(
     else:
         record["quarantined"] = False
 
-    existing = []
-    try:
-        existing = _feedback_records()
-        duplicate_key = (
-            predicted_label,
-            truth_label,
-            normalized_user_id,
-            round(score, 6),
-            _round_feature_vector(feature_vector) if feature_vector is not None else None,
+    with _DB_LOCK:
+        existing = []
+        try:
+            existing = _feedback_records()
+            duplicate_key = (
+                predicted_label,
+                truth_label,
+                normalized_user_id,
+                round(score, 6),
+                _round_feature_vector(feature_vector) if feature_vector is not None else None,
+            )
+            existing_keys: set[
+                tuple[str | None, str | None, str, float, tuple[float, ...] | None]
+            ] = set()
+            for item in existing:
+                pred = _normalize_label(item.get("original_prediction"))
+                truth = _normalize_label(item.get("user_truth"))
+                existing_user_id = _normalize_user_id(item.get("user_id"))
+
+                try:
+                    existing_score = float(item.get("full_image_score", 0.0))
+                except Exception:
+                    existing_score = 0.0
+                existing_score = round(float(np.clip(existing_score, 0.0, 1.0)), 6)
+
+                existing_vec = _coerce_feature_vector(item.get("feature_vector"))
+                vec_key = _round_feature_vector(existing_vec) if existing_vec is not None else None
+
+                existing_keys.add((pred, truth, existing_user_id, existing_score, vec_key))
+
+            if duplicate_key not in existing_keys:
+                existing.append(record)
+                _save_json(_FEEDBACK_FILE, existing)
+                with _MODEL_CACHE_LOCK:
+                    _MODEL_CACHE["feedback_mtime"] = None
+                    _MODEL_CACHE["seed_mtime"] = None
+                _refresh_model_async()
+        except Exception as e:
+            logger.error(f"Failed to save feedback record: {e}")
+
+        deduped_rows = _dedup_feedback_rows(existing)
+        metrics = _compute_confusion_metrics(deduped_rows)
+        _save_metrics(metrics)
+
+        calibration = _compute_calibration_metrics(deduped_rows)
+        _save_calibration_metrics(calibration)
+        _append_calibration_history(
+            calibration=calibration,
+            confusion=metrics,
+            total_feedback_records=len(existing),
         )
-        existing_keys: set[
-            tuple[str | None, str | None, str, float, tuple[float, ...] | None]
-        ] = set()
-        for item in existing:
-            pred = _normalize_label(item.get("original_prediction"))
-            truth = _normalize_label(item.get("user_truth"))
-            existing_user_id = _normalize_user_id(item.get("user_id"))
 
-            try:
-                existing_score = float(item.get("full_image_score", 0.0))
-            except Exception:
-                existing_score = 0.0
-            existing_score = round(float(np.clip(existing_score, 0.0, 1.0)), 6)
+        logger.info(
+            f"Feedback recorded: predicted={predicted_label}, truth={truth_label}, "
+            f"correct={record['was_correct']}, training_eligible={training_eligible}, "
+            f"feature_vector={'yes' if feature_vector else 'no'}"
+        )
 
-            existing_vec = _coerce_feature_vector(item.get("feature_vector"))
-            vec_key = _round_feature_vector(existing_vec) if existing_vec is not None else None
+        trust_profile = _compute_user_trust_profiles(existing).get(normalized_user_id, {})
+        return {
+            "confusion_matrix": metrics,
+            "training_eligible": training_eligible,
+            "training_exclusion_reason": exclusion_reason,
+            "calibration_metrics": calibration,
+            "user_trust_score": trust_profile.get("trust_score", 0.5),
+            "user_sample_weight": trust_profile.get("sample_weight", 1.0),
+        }
 
-            existing_keys.add((pred, truth, existing_user_id, existing_score, vec_key))
-
-        if duplicate_key not in existing_keys:
-            existing.append(record)
-            _save_json(_FEEDBACK_FILE, existing)
-            with _MODEL_CACHE_LOCK:
-                _MODEL_CACHE["feedback_mtime"] = None
-                _MODEL_CACHE["seed_mtime"] = None
-            _refresh_model_async()
-    except Exception as e:
-        logger.error(f"Failed to save feedback record: {e}")
-
-    deduped_rows = _dedup_feedback_rows(existing)
-    metrics = _compute_confusion_metrics(deduped_rows)
-    _save_metrics(metrics)
-
-    calibration = _compute_calibration_metrics(deduped_rows)
-    _save_calibration_metrics(calibration)
-    _append_calibration_history(
-        calibration=calibration,
-        confusion=metrics,
-        total_feedback_records=len(existing),
-    )
-
-    logger.info(
-        f"Feedback recorded: predicted={predicted_label}, truth={truth_label}, "
-        f"correct={record['was_correct']}, training_eligible={training_eligible}, "
-        f"feature_vector={'yes' if feature_vector else 'no'}"
-    )
-
-    trust_profile = _compute_user_trust_profiles(existing).get(normalized_user_id, {})
-    return {
-        "confusion_matrix": metrics,
-        "training_eligible": training_eligible,
-        "training_exclusion_reason": exclusion_reason,
-        "calibration_metrics": calibration,
-        "user_trust_score": trust_profile.get("trust_score", 0.5),
-        "user_sample_weight": trust_profile.get("sample_weight", 1.0),
-    }

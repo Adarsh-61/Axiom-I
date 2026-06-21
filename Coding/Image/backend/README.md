@@ -74,9 +74,12 @@ Health endpoint:
 Current limits configured in backend:
 
 - POST /api/v1/analyze: 10 requests per minute
+- POST /api/v1/analyze/video: 5 requests per minute
 - GET /api/v1/health: 60 requests per minute
 - POST /api/v1/feedback: 30 requests per minute
+- POST /api/v1/feedback/video: 15 requests per minute
 - GET /api/v1/feedback/metrics: 60 requests per minute
+
 
 ## 7. Endpoint Details
 
@@ -134,7 +137,7 @@ Accepted file types:
 Validation rules:
 
 - Empty file is rejected.
-- File size limit: 10 MB.
+- File size limit: 50 MB.
 - Max resolution: 20,000,000 pixels.
 
 Example request:
@@ -336,7 +339,110 @@ Example response (shape):
 }
 ```
 
+### 7.6 POST /api/v1/analyze/video
+
+Purpose:
+
+- Saves video upload to a temporary path, runs the physics-based deepfake video detection pipeline (optical flow, rPPG, lighting, etc.), and returns the calibrated forensic verdict.
+
+Request:
+
+- Method: POST
+- Body: multipart/form-data
+- Field: file
+
+Accepted video formats:
+
+- .mp4, .webm, .mov, .avi
+
+Validation rules:
+
+- Reject mismatching MIME content types.
+- Header magic bytes check.
+- Upload size limit: 50 MB.
+
+Example response:
+
+```json
+{
+  "verdict": "Real",
+  "confidence": 0.658,
+  "faces_detected": 1,
+  "analysis_mode": "video_full",
+  "feature_vector": [0.0483, 0.9548, 1.0, 0.94, 0.07, 0.0794, 0.0286, 0.502, 1.0, 0.12, 0.85],
+  "quality_metrics": {
+    "video_quality": 0.85
+  },
+  "heuristic_score": 0.171,
+  "calibrated_score": 0.171,
+  "calibration_breakdown": {
+    "model_weight": 0.0,
+    "learned_score": 0.5,
+    "heuristic_score": 0.171,
+    "calibrated_score": 0.171
+  },
+  "decision_factors": {
+    "final_score": 0.171,
+    "heuristic_score": 0.171,
+    "learned_score": 0.5,
+    "model_weight": 0.0,
+    "physics_ensemble": 0.452
+  },
+  "full_image_score": 0.171,
+  "contributions": [
+    {
+      "signal": "optical_boundary",
+      "raw_score": 0.0483,
+      "weight": 0.18,
+      "contribution": 0.0087
+    }
+  ],
+  "explanation": [
+    "Video frames were adaptively sampled for efficiency.",
+    "Face-local physics (Optical Flow, rPPG) were extracted if a face was present."
+  ]
+}
+```
+
+### 7.7 POST /api/v1/feedback/video
+
+Purpose:
+
+- Submits ground-truth correction feedback for a specific analyzed video.
+- Integrates Poison Guard checks: ignores/rejects feedback if the user's label contradicts the physics ensemble results drastically.
+
+Request:
+
+- Method: POST
+- Content-Type: application/json
+- Fields:
+  - video_id: string
+  - is_correct: boolean (whether model verdict matches user's ground-truth)
+  - feature_vector: list of 11 floats
+  - user_rating: float (1.0 for Fake, 0.0 for Real)
+
+Example request:
+
+```json
+{
+  "video_id": "8cf552a8-12cd-4da0-90eb-14b3dc04c552",
+  "is_correct": false,
+  "feature_vector": [0.0483, 0.9548, 1.0, 0.94, 0.07, 0.0794, 0.0286, 0.502, 1.0, 0.12, 0.85],
+  "user_rating": 1.0
+}
+```
+
+Example success response:
+
+```json
+{
+  "status": "success",
+  "message": "Video feedback recorded."
+}
+```
+
 ## 8. Calibration Notes
+
 
 ### 8.1 Feature Vector
 

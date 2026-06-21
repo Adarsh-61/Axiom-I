@@ -7,12 +7,10 @@ import { Tex } from './Tex';
 import {
   API_BASE, ANALYZE_TIMEOUT_MS, FEEDBACK_TIMEOUT_MS, METRICS_TIMEOUT_MS,
   AnalysisResponse, FeedbackDiagnosticsResponse, FeedbackSubmitResponse,
-  PipelineStepDef,
+  PipelineStepDef, ErrorPayload,
   withTimeout, parseJsonSafe, extractErrorMessage, getOrCreateClientId,
-  toPercent, toFixed, toFileSize, getFullPhysicsSteps, getFallbackSteps,
+  toPercent, toFixed, toFileSize, getFullPhysicsSteps, getFallbackSteps, getVideoPhysicsSteps,
 } from './helpers';
-
-type ErrorPayload = { detail?: string; error?: string; message?: string };
 
 const signalColor = (v: number) => v >= 0.6 ? 'danger' : v >= 0.3 ? 'mid' : 'safe';
 const f = (v: number | undefined) => typeof v === 'number' ? v.toFixed(4) : '?';
@@ -45,9 +43,12 @@ export default function Home() {
 
   const handleFileSelection = (selectedFile: File) => {
     setError(null); setResult(null); setFeedbackStatus(null);
-    if (selectedFile.size > 10 * 1024 * 1024) { setError('File size must be 10 MB or less.'); return; }
+    if (selectedFile.size > 50 * 1024 * 1024) { setError('File size must be 50 MB or less.'); return; }
     const mime = (selectedFile.type || '').toLowerCase();
-    if (mime && !mime.startsWith('image/') && mime !== 'application/octet-stream') { setError('Only image files are supported.'); return; }
+    const name = selectedFile.name.toLowerCase();
+    const isImage = mime.startsWith('image/') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp');
+    const isVideo = mime.startsWith('video/') || name.endsWith('.mp4') || name.endsWith('.webm') || name.endsWith('.mov') || name.endsWith('.avi');
+    if (!isImage && !isVideo && mime !== 'application/octet-stream') { setError('Only image and video files are supported.'); return; }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(selectedFile); setPreviewUrl(URL.createObjectURL(selectedFile));
   };
@@ -57,7 +58,10 @@ export default function Home() {
     setIsAnalyzing(true); setError(null); setFeedbackStatus(null);
     try {
       const fd = new FormData(); fd.append('file', file);
-      const res = await withTimeout(`${API_BASE}/api/v1/analyze`, { method: 'POST', body: fd }, ANALYZE_TIMEOUT_MS);
+      const name = file.name.toLowerCase();
+      const isVideo = file.type.startsWith('video/') || name.endsWith('.mp4') || name.endsWith('.webm') || name.endsWith('.mov') || name.endsWith('.avi');
+      const endpoint = isVideo ? `${API_BASE}/api/v1/analyze/video` : `${API_BASE}/api/v1/analyze`;
+      const res = await withTimeout(endpoint, { method: 'POST', body: fd }, ANALYZE_TIMEOUT_MS);
       const p = await parseJsonSafe<AnalysisResponse & ErrorPayload>(res);
       if (!res.ok) throw new Error(extractErrorMessage(p, 'Analysis failed.'));
       if (!p) throw new Error('Empty response.');
@@ -81,14 +85,29 @@ export default function Home() {
       : typeof result.full_image_score === 'number' ? result.full_image_score : 0.5;
     setIsSubmittingFeedback(true); setError(null);
     try {
-      const res = await withTimeout(`${API_BASE}/api/v1/feedback`, {
+      const isVideo = result.analysis_mode?.startsWith('video');
+      const endpoint = isVideo ? `${API_BASE}/api/v1/feedback/video` : `${API_BASE}/api/v1/feedback`;
+      const res = await withTimeout(endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_image_score: effectiveScore, original_prediction: result.verdict, user_truth: userTruth, feature_vector: result.feature_vector || null, user_id: getOrCreateClientId() }),
+        body: JSON.stringify(isVideo ? { video_id: result.video_id || '', is_correct: result.verdict === userTruth, feature_vector: result.feature_vector || [], user_rating: userTruth === 'Fake' ? 1.0 : 0.0 } : { full_image_score: effectiveScore, original_prediction: result.verdict, user_truth: userTruth, feature_vector: result.feature_vector || null, user_id: getOrCreateClientId() }),
       }, FEEDBACK_TIMEOUT_MS);
+
       const p = await parseJsonSafe<FeedbackSubmitResponse & ErrorPayload>(res);
       if (!res.ok) throw new Error(extractErrorMessage(p, 'Feedback failed.'));
       if (!p) throw new Error('Empty response.');
-      setFeedbackStatus({ message: p.message, trainingEligible: p.training_eligible, exclusionReason: p.training_exclusion_reason });
+      if (isVideo) {
+        setFeedbackStatus({
+          message: p.message ?? 'Video feedback recorded.',
+          trainingEligible: typeof p.training_eligible === 'boolean' ? p.training_eligible : true,
+          exclusionReason: p.training_exclusion_reason ?? null,
+        });
+      } else {
+        setFeedbackStatus({
+          message: p.message,
+          trainingEligible: p.training_eligible,
+          exclusionReason: p.training_exclusion_reason,
+        });
+      }
       await fetchDiagnostics();
     } catch (err) { setError(err instanceof Error ? err.message : 'Feedback failed.'); }
     finally { setIsSubmittingFeedback(false); }
@@ -96,6 +115,7 @@ export default function Home() {
 
   const pipelineSteps: PipelineStepDef[] = useMemo(() => {
     if (!result) return [];
+    if (result.analysis_mode?.startsWith('video')) return getVideoPhysicsSteps(result);
     return result.analysis_mode === 'fallback' ? getFallbackSteps(result) : getFullPhysicsSteps(result);
   }, [result]);
 
@@ -103,6 +123,21 @@ export default function Home() {
     if (!result) return [];
     const df = result.decision_factors || {};
     const sb = result.faces?.[0]?.signal_breakdown;
+    
+    if (result.analysis_mode?.startsWith('video')) {
+      const fv = result.feature_vector || [0,0,0,0,0,0,0,0,0,0,0];
+      return [
+        { name: 'Opt. Flow', value: fv[0], weight: 0.18 },
+        { name: 'rPPG', value: fv[1], weight: 0.18 },
+        { name: 'Lighting', value: fv[2], weight: 0.15 },
+        { name: 'FFT', value: fv[3], weight: 0.10 },
+        { name: 'Wavelet', value: fv[4], weight: 0.10 },
+        { name: 'Compression', value: fv[5], weight: 0.05 },
+        { name: 'Scene (Branch B)', value: fv[6], weight: 0.12 },
+        { name: 'Mamba (Branch B)', value: fv[7], weight: 0.12 },
+      ];
+    }
+    
     if (result.analysis_mode === 'fallback') {
       const fb = result.fallback_breakdown || {};
       return [
@@ -147,7 +182,7 @@ export default function Home() {
     <div className="page">
       <header className="header">
         <h1 className="title">Axiom-I</h1>
-        <p className="subtitle">Image Forensics Analysis System</p>
+        <p className="subtitle">Media Forensics Analysis System</p>
       </header>
 
       {error && <div className="errorBox">{error}</div>}
@@ -165,16 +200,24 @@ export default function Home() {
                 <div className="uploadIconWrap">
                   <svg className="uploadIcon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 </div>
-                <span className="uploadTitle">Upload Image</span>
-                <span className="uploadSubtitle">Any image format up to 10 MB</span>
+                <span className="uploadTitle">Upload Media</span>
+                <span className="uploadSubtitle">Image or video (up to 50 MB)</span>
               </>) : (
                 <div className="previewBlock">
-                  <div className="previewInfo"><strong>{file?.name || 'Selected image'}</strong><span>{toFileSize(file?.size || 0)}</span></div>
-                  <div className="previewWrap"><Image src={previewUrl} alt="Selected image" width={1200} height={800} className="previewImage" unoptimized /></div>
+                  <div className="previewInfo"><strong>{file?.name || 'Selected media'}</strong><span>{toFileSize(file?.size || 0)}</span></div>
+                  <div className="previewWrap">
+                    {file && (file.type.startsWith('video/') || file.name.toLowerCase().endsWith('.mp4') || file.name.toLowerCase().endsWith('.webm') || file.name.toLowerCase().endsWith('.mov') || file.name.toLowerCase().endsWith('.avi')) ? (
+                      <video key={previewUrl} src={previewUrl} controls className="previewImage" style={{ maxHeight: 300, width: 'auto', display: 'block', margin: '0 auto' }}>
+                        Your browser does not support the video tag.
+                      </video>
+                    ) : (
+                      <Image src={previewUrl} alt="Selected media" width={1200} height={800} className="previewImage" unoptimized />
+                    )}
+                  </div>
                 </div>
               )}
             </label>
-            <input id="upload-input" ref={fileInputRef} className="hidden" type="file" accept="image/*" onChange={e => { if (e.target.files?.length) handleFileSelection(e.target.files[0]); }} />
+            <input id="upload-input" ref={fileInputRef} className="hidden" type="file" accept="image/*,video/*" onChange={e => { if (e.target.files?.length) handleFileSelection(e.target.files[0]); }} />
             <div className="rowButtons" style={{ marginTop: 10 }}>
               <button className="btn" onClick={resetAll} disabled={isAnalyzing || isSubmittingFeedback}>Reset</button>
               <button className="btn primary" onClick={runAnalysis} disabled={isAnalyzing || !file}>{isAnalyzing ? 'Analyzing...' : 'Analyze'}</button>
@@ -186,7 +229,7 @@ export default function Home() {
               <div className="tableWrap"><table className="table"><tbody>
                 <tr><th>Verdict</th><td className={verdictColorClass} style={{ fontWeight: 700 }}>{result.verdict}</td></tr>
                 <tr><th>Confidence</th><td>{toPercent(result.confidence)}</td></tr>
-                <tr><th>Analysis Mode</th><td>{result.analysis_mode === 'fallback' ? 'Fallback (no face detected)' : 'Full Physics (face detected)'}</td></tr>
+                <tr><th>Analysis Mode</th><td>{result.analysis_mode === 'fallback' ? 'Fallback (no face detected)' : result.analysis_mode === 'video_full' ? 'Video Physics (face detected)' : result.analysis_mode === 'video_fallback' ? 'Video Fallback (no face)' : 'Full Physics (face detected)'}</td></tr>
                 <tr><th>Faces Detected</th><td>{result.faces_detected}</td></tr>
                 <tr><th>Final Score</th><td>{toFixed(df.final_score ?? result.full_image_score)}</td></tr>
                 <tr><th>Heuristic Score</th><td>{toFixed(cb.heuristic_score)}</td></tr>
@@ -194,7 +237,7 @@ export default function Home() {
                 <tr><th>Model Weight</th><td>{toFixed(cb.model_weight)}</td></tr>
               </tbody></table></div>
             ) : (
-              <div className="emptyState">Upload an image and click Analyze to see results.</div>
+              <div className="emptyState">Upload an image or video and click Analyze to see results.</div>
             )}
           </div>
         </div>
@@ -211,7 +254,7 @@ export default function Home() {
               return (
                 <div key={s.name} className="signalRow">
                   <span className="signalName">{s.name} <span className="signalWeight">(w={s.weight})</span></span>
-                  <div className="signalTrack"><div className={`signalFill ${cls}`} style={{ width: `${Math.min(s.value * 100, 100)}%` }} /></div>
+                  <div className="signalTrack"><div className={`signalFill ${cls}`} style={{ width: `${Math.min(Math.max(s.value * 100, 0), 100)}%` }} /></div>
                   <span className={`signalValue ${cls}`}>{s.value.toFixed(4)}</span>
                 </div>
               );
@@ -276,37 +319,43 @@ export default function Home() {
           </div>
           <p className="cardDesc">Summary of the mathematical derivation showing how the final verdict of <strong className={verdictColorClass}>{result.verdict}</strong> with {toPercent(result.confidence)} confidence was computed. Click the button above to see the complete step-by-step calculations with all variable values.</p>
 
-          <div className="mathSection">
-            <div className="mathSectionTitle">1. Sigmoid Function</div>
-            <p className="mathText">All anomaly scores use the sigmoid function to map raw values to [0, 1]:</p>
-            <div className="formulaBlock"><Tex math="\sigma(x) = \frac{1}{1 + e^{-x}}" block /></div>
-          </div>
-
-          {isFullPhysics ? (<>
+          {!result.analysis_mode?.startsWith('video') && (
             <div className="mathSection">
-              <div className="mathSectionTitle">2. Individual Signal Scores</div>
-              <p className="mathText">Each forensic module computes an anomaly score using shifted sigmoid functions:</p>
-              <div className="formulaBlock">
-                <Tex math={`\\text{Specular} = \\sigma\\big(15 \\cdot (\\text{NCC} - 0.30)\\big) = ${f(df.specular)}`} block />
-                <Tex math={`\\text{Frequency} = \\sigma\\big(-3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${f(df.frequency)}`} block />
-                <Tex math={`\\text{Topology} = \\sigma\\big(0.11 \\cdot (C - 18)\\big) = ${f(df.topology)}`} block />
-                <Tex math={`\\text{Patch} = \\sigma\\big(-20 \\cdot (\\text{CV} - 0.25)\\big) = ${f(df.patch_consistency)}`} block />
-                <Tex math={`\\text{Wavelet} = \\sigma\\big(3 \\cdot (\\ln(1 + E_{\\text{avg}}) - 4.5)\\big) = ${f(df.wavelet_score)}`} block />
-                <Tex math={`\\text{ViT} = \\text{softmax}(\\text{logits})[\\text{fake}] = ${f(df.vit_score)}`} block />
-              </div>
+              <div className="mathSectionTitle">1. Sigmoid Function</div>
+              <p className="mathText">All anomaly scores use the sigmoid function to map raw values to [0, 1]:</p>
+              <div className="formulaBlock"><Tex math="\sigma(x) = \frac{1}{1 + e^{-x}}" block /></div>
             </div>
+          )}
 
-            <div className="mathSection">
-              <div className="mathSectionTitle">3. Noisy-OR Fusion</div>
-              <p className="mathText">The six signals are fused using the Noisy-OR probabilistic model. Each signal has an assigned weight. The probability that all signals indicate the image is real is the product of individual real probabilities:</p>
-              <div className="formulaBlock">
-                <Tex math="P(\text{all real}) = \prod_{i=1}^{6} \big(1 - w_i \cdot s_i\big)" block />
-                <Tex math={`\\text{ensemble} = 1 - P(\\text{all real}) = ${f(sb?.physics_ensemble)}`} block />
-                <Tex math={`\\text{heuristic} = \\sigma\\big(8 \\cdot (\\text{ensemble} - 0.40)\\big) = ${f(df.heuristic_score)}`} block />
+          {!result.analysis_mode?.startsWith('video') && isFullPhysics && (
+            <>
+              <div className="mathSection">
+                <div className="mathSectionTitle">2. Individual Signal Scores</div>
+                <p className="mathText">Each forensic module computes an anomaly score using shifted sigmoid functions:</p>
+                <div className="formulaBlock">
+                  <Tex math={`\\text{Specular} = \\sigma\\big(15 \\cdot (\\text{NCC} - 0.30)\\big) = ${f(df.specular)}`} block />
+                  <Tex math={`\\text{Frequency} = \\sigma\\big(3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${f(df.frequency)}`} block />
+                  <Tex math={`\\text{Topology} = \\sigma\\big(0.11 \\cdot (C - 18)\\big) = ${f(df.topology)}`} block />
+                  <Tex math={`\\text{Patch} = \\sigma\\big(-20 \\cdot (\\text{CV} - 0.25)\\big) = ${f(df.patch_consistency)}`} block />
+                  <Tex math={`\\text{Wavelet} = \\sigma\\big(3 \\cdot (\\ln(1 + E_{\\text{avg}}) - 4.5)\\big) = ${f(df.wavelet_score)}`} block />
+                  <Tex math={`\\text{ViT} = \\text{softmax}(\\text{logits})[\\text{fake}] = ${f(df.vit_score)}`} block />
+                </div>
               </div>
-              <p className="mathText">Weights: specular = 0.10, frequency = 0.18, topology = 0.22, patch = 0.22, wavelet = 0.15, ViT = 0.13</p>
-            </div>
-          </>) : (
+
+              <div className="mathSection">
+                <div className="mathSectionTitle">3. Noisy-OR Fusion</div>
+                <p className="mathText">The six signals are fused using the Noisy-OR probabilistic model. Each signal has an assigned weight. The probability that all signals indicate the image is real is the product of individual real probabilities:</p>
+                <div className="formulaBlock">
+                  <Tex math="P(\text{all real}) = \prod_{i=1}^{6} \big(1 - w_i \cdot s_i\big)" block />
+                  <Tex math={`\\text{ensemble} = 1 - P(\\text{all real}) = ${f(sb?.physics_ensemble)}`} block />
+                  <Tex math={`\\text{heuristic} = \\sigma\\big(8 \\cdot (\\text{ensemble} - 0.40)\\big) = ${f(df.heuristic_score)}`} block />
+                </div>
+                <p className="mathText">Weights: specular = 0.10, frequency = 0.18, topology = 0.22, patch = 0.22, wavelet = 0.15, ViT = 0.13</p>
+              </div>
+            </>
+          )}
+
+          {!result.analysis_mode?.startsWith('video') && !isFullPhysics && (
             <div className="mathSection">
               <div className="mathSectionTitle">2. Fallback Signal Fusion</div>
               <p className="mathText">Without a detected face, three signals are combined using fixed weights:</p>
@@ -317,24 +366,28 @@ export default function Home() {
             </div>
           )}
 
-          <div className="mathSection">
-            <div className="mathSectionTitle">{isFullPhysics ? '4' : '3'}. Calibration Blend</div>
-            <p className="mathText">A machine learning model produces a learned score. This is blended with the heuristic using an adaptive weight that increases with more feedback data:</p>
-            <div className="formulaBlock">
-              <Tex math="w = \begin{cases} 0 & \text{if feedback} < 15 \\ \text{clamp}(0.10 + 0.02 \cdot (n - 15),\; 0,\; 0.80) & \text{otherwise} \end{cases}" block />
-              <Tex math="\text{final} = w \cdot \text{learned} + (1 - w) \cdot \text{heuristic}" block />
-              <Tex math={`= ${f(cb.model_weight)} \\times ${f(cb.learned_score)} + ${f(typeof cb.model_weight === 'number' ? 1 - cb.model_weight : undefined)} \\times ${f(cb.heuristic_score)} = ${f(df.final_score)}`} block />
-            </div>
-          </div>
+          {!result.analysis_mode?.startsWith('video') && (
+            <>
+              <div className="mathSection">
+                <div className="mathSectionTitle">{isFullPhysics ? '4' : '3'}. Calibration Blend</div>
+                <p className="mathText">A machine learning model produces a learned score. This is blended with the heuristic using an adaptive weight that increases with more feedback data:</p>
+                <div className="formulaBlock">
+                  <Tex math="w = \begin{cases} 0 & \text{if feedback} < 15 \\ \text{clamp}(0.10 + 0.02 \cdot (n - 15),\; 0,\; 0.80) & \text{otherwise} \end{cases}" block />
+                  <Tex math="\text{final} = w \cdot \text{learned} + (1 - w) \cdot \text{heuristic}" block />
+                  <Tex math={`= ${f(cb.model_weight)} \\times ${f(cb.learned_score)} + ${f(typeof cb.model_weight === 'number' ? 1 - cb.model_weight : undefined)} \\times ${f(cb.heuristic_score)} = ${f(df.final_score)}`} block />
+                </div>
+              </div>
 
-          <div className="mathSection">
-            <div className="mathSectionTitle">{isFullPhysics ? '5' : '4'}. Final Decision</div>
-            <div className="formulaBlock">
-              <Tex math='\text{verdict} = \begin{cases} \text{Fake} & \text{if } \text{score} \geq 0.50 \\ \text{Real} & \text{if } \text{score} < 0.50 \end{cases}' block />
-              <Tex math={`\\text{confidence} = |\\text{score} - 0.50| \\times 2 = |${f(df.final_score)} - 0.50| \\times 2 = ${toPercent(result.confidence)}`} block />
-            </div>
-            <p className="mathText">Result: <strong className={verdictColorClass}>{result.verdict}</strong> with {toPercent(result.confidence)} confidence (score = {f(df.final_score)})</p>
-          </div>
+              <div className="mathSection">
+                <div className="mathSectionTitle">{isFullPhysics ? '5' : '4'}. Final Decision</div>
+                <div className="formulaBlock">
+                  <Tex math='\text{verdict} = \begin{cases} \text{Fake} & \text{if } \text{score} \geq 0.50 \\ \text{Real} & \text{if } \text{score} < 0.50 \end{cases}' block />
+                  <Tex math={`\\text{confidence} = |\\text{score} - 0.50| \\times 2 = |${f(df.final_score)} - 0.50| \\times 2 = ${toPercent(result.confidence)}`} block />
+                </div>
+                <p className="mathText">Result: <strong className={verdictColorClass}>{result.verdict}</strong> with {toPercent(result.confidence)} confidence (score = {f(df.final_score)})</p>
+              </div>
+            </>
+          )}
         </section>
 
         {/* Feedback */}
