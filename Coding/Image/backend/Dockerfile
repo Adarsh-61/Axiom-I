@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     libglib2.0-0 \
-    libgl1-mesa-glx \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up environment variables to avoid writing pyc files and to buffer output
