@@ -113,4 +113,4 @@ On CPU-only hosting environments, the pre-trained Vision Transformer model is ke
 
 ## 8. License
 
-This project is licensed under the MIT License. See the root [LICENSE](../../LICENSE) file for details.
+This project is licensed under the MIT License. See the public [LICENSE](https://github.com/Adarsh-61/Axiom-I/blob/main/LICENSE) file for details.

@@ -64,7 +64,13 @@ def deploy(token, space_name="axiom-backend", dataset_name="axiom-telemetry"):
                 "**/*.pyc",
                 ".env",
                 ".venv",
-                "feedback_data",
+                "app/ml/feedback_data/feedback_log.json",
+                "app/ml/feedback_data/quarantine_log.json",
+                "app/ml/feedback_data/calibration_metrics.json",
+                "app/ml/feedback_data/calibration_history.json",
+                "app/ml/feedback_data/confusion_matrix.json",
+                "app/ml/feedback_data/video_feedback_db.json",
+                "app/ml/feedback_data/video_calibration_db.json",
                 "deploy_hf.py"
             ]
         )
