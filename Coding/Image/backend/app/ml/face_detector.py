@@ -21,26 +21,32 @@ def _ensure_detector():
     if _detector is not None:
         return True
 
-    try:
-        import torch
-        from facenet_pytorch import MTCNN
+    with _detector_lock:
+        if _detector is not None:
+            return True
+        if _detector_failed:
+            return False
+
+        try:
+            import torch
+            from facenet_pytorch import MTCNN
 
                                            
                                                                                           
                                                                                                
-        requested_device = (settings.DEVICE or "cpu").strip().lower()
-        if requested_device.startswith("cuda") and not torch.cuda.is_available():
-            logger.warning("AXIOM_DEVICE=%s requested but CUDA is unavailable; using cpu.", requested_device)
-            requested_device = "cpu"
+            requested_device = (settings.DEVICE or "cpu").strip().lower()
+            if requested_device.startswith("cuda") and not torch.cuda.is_available():
+                logger.warning("AXIOM_DEVICE=%s requested but CUDA is unavailable; using cpu.", requested_device)
+                requested_device = "cpu"
 
-        device = torch.device(requested_device)
-        _detector = MTCNN(keep_all=True, device=device)
-        logger.info(f"MTCNN Face Detector loaded on {device}.")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to initialize MTCNN: {e}")
-        _detector_failed = True
-        return False
+            device = torch.device(requested_device)
+            _detector = MTCNN(keep_all=True, device=device)
+            logger.info(f"MTCNN Face Detector loaded on {device}.")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize MTCNN: {e}")
+            _detector_failed = True
+            return False
 
 
                                                                           

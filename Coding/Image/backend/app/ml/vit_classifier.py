@@ -101,13 +101,18 @@ class ViTClassifier:
 
 
                                                                              
+from threading import Lock
+
 _classifier = None
+_classifier_lock = Lock()
 
 
 def _ensure_classifier():
     global _classifier
     if _classifier is None:
-        _classifier = ViTClassifier()
+        with _classifier_lock:
+            if _classifier is None:
+                _classifier = ViTClassifier()
     return _classifier
 
 

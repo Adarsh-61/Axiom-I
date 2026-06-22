@@ -33,8 +33,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application files
 COPY . /code/
 
-# Grant full permission to the code directory so that running under HF's default UID 1000 has permission to write logs or download cache files
-RUN chmod -R 777 /code
+# Grant ownership and group write permission to the code directory so that running under HF's default UID 1000 has permission to write logs or download cache files without exposing global write permissions
+RUN chown -R 1000:1000 /code && chmod -R 775 /code
 
 # Expose port 7860 (Hugging Face default)
 EXPOSE 7860

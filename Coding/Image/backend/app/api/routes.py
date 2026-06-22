@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import asyncio
 from fastapi import APIRouter, File, UploadFile, HTTPException, Request
 from app.api.schemas import AnalysisResponse, VisualizationStep, FaceResult, SignalBreakdown
 from app.config import settings
@@ -40,7 +41,7 @@ async def analyze_image(request: Request, file: UploadFile = File(...)):
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         logger.info("Analysis request received.")
 
-        result_dict = analyze(img_rgb)
+        result_dict = await asyncio.to_thread(analyze, img_rgb)
         face_results = []
         for f in result_dict.get("faces", []):
             sb = f.get("signal_breakdown")
@@ -81,4 +82,19 @@ async def analyze_image(request: Request, file: UploadFile = File(...)):
 @router.get("/health")
 @limiter.limit("60/minute")
 async def health_check(request: Request):
-    return {"status": "ok", "service": "Axiom-I Image Forensics"}
+    from app.ml.vit_classifier import warmup_classifier
+    from app.ml.face_detector import warmup_detector
+    
+    vit_ok = warmup_classifier()
+    detector_ok = warmup_detector()
+    
+    status = "ok" if (vit_ok and detector_ok) else "degraded"
+    
+    return {
+        "status": status,
+        "service": "Axiom-I Image Forensics",
+        "models": {
+            "vit_classifier": "ready" if vit_ok else "unavailable",
+            "face_detector": "ready" if detector_ok else "unavailable"
+        }
+    }

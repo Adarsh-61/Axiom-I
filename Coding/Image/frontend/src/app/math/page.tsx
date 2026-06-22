@@ -336,7 +336,7 @@ export default function MathPage() {
             <p className="derivStep">3. Now we check if all 16 SNR values are similar or very different. This is done using the Coefficient of Variation (CV), which is simply the standard deviation of the SNR values divided by their mean:</p>
             <Tex math="\text{CV} = \frac{\text{std}(\text{SNR}_1, \ldots, \text{SNR}_{16})}{\text{mean}(\text{SNR}_1, \ldots, \text{SNR}_{16})}" block />
             <p className="derivStep">4. A high CV means the noise levels are very different across the face, which is a sign of manipulation. The CV is converted to an anomaly score using a sigmoid with center 0.25:</p>
-            <Tex math={`\\text{Anomaly} = \\frac{1}{1 + e^{20 \\times (\\text{CV} - 0.25)}} = ${f(df.patch_consistency)}`} block />
+            <Tex math={`\\text{Anomaly} = \\frac{1}{1 + e^{-20 \\times (\\text{CV} - 0.25)}} = ${f(df.patch_consistency)}`} block />
           </div>
           {df.patch_consistency !== undefined && (
             <div className="derivBlock">

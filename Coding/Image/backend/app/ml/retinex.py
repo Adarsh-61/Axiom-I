@@ -4,7 +4,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def extract_msr(image: np.ndarray, sigmas=[15, 80, 120]):
+def extract_msr(image: np.ndarray, sigmas: list[int] | None = None):
+    if sigmas is None:
+        sigmas = [15, 80, 120]
     try:
                                                 
         img_float = np.float32(image)

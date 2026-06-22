@@ -122,14 +122,14 @@ export function getFullPhysicsSteps(r: AnalysisResponse): PipelineStepDef[] {
       latex: [
         '\\text{Power} = |\\mathcal{F}_{\\text{shifted}}|^2',
         '\\text{HFER} = \\frac{\\sum \\text{power}_{\\text{high}}}{\\sum \\text{power}_{\\text{low}}}',
-        `\\text{anomaly} = \\sigma\\big(-3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${fmt(df.frequency)}`,
+        `\\text{anomaly} = \\sigma\\big(3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${fmt(df.frequency)}`,
       ] },
     { file: 'patch_analysis.py', title: 'Step 8: Patch Noise Consistency (PRNU)', desc: `The Laplacian operator extracts high-frequency noise from the grayscale image. The image is divided into a 4x4 grid (16 patches). For each patch, the signal-to-noise ratio (SNR) is computed. The coefficient of variation (CV) across all patches measures consistency. Real cameras produce uniform noise; deepfakes show inconsistent patch noise. ${df.patch_consistency !== undefined ? `Calculated Patch Anomaly Score = ${fmt(df.patch_consistency)}` : ''}`,
       outputLabel: 'Patch score', outputKey: 'patch_consistency',
       latex: [
         '\\text{SNR}_i = \\frac{\\text{std}(\\text{patch}_i)}{\\text{mean}(\\text{patch}_i)}',
         '\\text{CV} = \\frac{\\text{std}(\\text{SNR}_{\\text{all}})}{\\text{mean}(\\text{SNR}_{\\text{all}})}',
-        `\\text{anomaly} = \\sigma\\big(-20 \\cdot (\\text{CV} - 0.25)\\big) = ${fmt(df.patch_consistency)}`,
+        `\\text{anomaly} = \\sigma\\big(20 \\cdot (\\text{CV} - 0.25)\\big) = ${fmt(df.patch_consistency)}`,
       ] },
     { file: 'topology.py', title: 'Step 9: Topological Complexity Analysis', desc: `The specular residual magnitude is thresholded at three levels (64, 128, 192). At each level, the number of connected components and holes is counted. A weighted sum gives topological complexity. Deepfakes produce more complex, fragmented specular patterns. ${df.topology !== undefined ? `Calculated Topology Anomaly Score = ${fmt(df.topology)}` : ''}`,
       outputLabel: 'Topology score', outputKey: 'topology',
@@ -183,7 +183,7 @@ export function getFallbackSteps(r: AnalysisResponse): PipelineStepDef[] {
       imageStepIndex: 2, outputLabel: 'Frequency', outputKey: 'frequency',
       latex: [
         '\\text{HFER} = \\frac{\\sum \\text{high\\_freq}}{\\sum \\text{low\\_freq}}',
-        `\\text{anomaly} = \\sigma\\big(-3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${fmt(fb.frequency)}`,
+        `\\text{anomaly} = \\sigma\\big(3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${fmt(fb.frequency)}`,
       ] },
     { file: 'wavelet.py', title: 'Step 3: Wavelet Analysis', desc: `DWT (Daubechies-2, level 2) is applied to the full image. The energy in the high-frequency detail sub-bands is computed. ${fb.wavelet !== undefined ? `Calculated Wavelet Score = ${fmt(fb.wavelet)}` : ''}`,
       imageStepIndex: 3, outputLabel: 'Wavelet', outputKey: 'wavelet',
@@ -223,7 +223,7 @@ export function getVideoPhysicsSteps(r: AnalysisResponse): PipelineStepDef[] {
   return [
     { file: 'video_ingest.py', title: 'Step 1: Adaptive Frame Sampling', desc: 'The video is ingested and frames are sampled adaptively based on motion heuristics. FPS is normalized and quality metrics (blur, resolution) are computed to produce the video_quality index.',
       latex: [
-        '\\text{quality} = 0.7 \\cdot \\text{resolution} + 0.3 \\cdot \\text{sharpness}',
+        '\\text{quality} = 0.5 \\cdot \\text{resolution} + 0.3 \\cdot \\text{sharpness} + 0.2 \\cdot \\text{blockiness}',
         `\\text{video\\_quality} = ${fmt(fv[10])}`
       ] },
     { file: 'face_tracker.py', title: 'Step 2: Face Gateway (Multi-Frame Init)', desc: 'Scans the first 10 frames to find and lock onto the main face. If found, routes to Branch A (Face-Local Physics) and Branch B (Universal). If not found, routes to Branch B only (Fallback Mode).',

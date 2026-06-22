@@ -40,8 +40,8 @@ def evaluate_video_signals(feature_vector: list[float]) -> dict:
         0.10, # 3: temporal_fft
         0.10, # 4: wavelet_temporal
         0.05, # 5: compression_residual
-        0.12, # 6: global_scene
-        0.12  # 7: temporal_backbone
+        0.24, # 6: global_scene (boosted from 0.12 to absorb temporal_backbone)
+        0.00  # 7: temporal_backbone (disabled because proxy uses untrained random weights)
     ]
     
     signals = feature_vector[0:8]
@@ -57,8 +57,8 @@ def evaluate_video_signals(feature_vector: list[float]) -> dict:
         weights[3] = 0.15
         weights[4] = 0.15
         weights[5] = 0.10
-        weights[6] = 0.30 # Global scene is crucial
-        weights[7] = 0.30 # Backbone is crucial
+        weights[6] = 0.60 # Global scene is crucial (boosted from 0.30 to absorb temporal_backbone)
+        weights[7] = 0.00 # Backbone is disabled
     else:
         # Adjust weights dynamically based on face size
         # Small faces have less reliable boundary and rPPG signals
@@ -70,8 +70,7 @@ def evaluate_video_signals(feature_vector: list[float]) -> dict:
             
             # Rebalance
             diff = (0.18 + 0.18 + 0.15) * (1.0 - scale)
-            weights[6] += diff / 2.0
-            weights[7] += diff / 2.0
+            weights[6] += diff
             
     # Apply Noisy-OR Fusion
     physics_ensemble = _noisy_or(signals, weights)

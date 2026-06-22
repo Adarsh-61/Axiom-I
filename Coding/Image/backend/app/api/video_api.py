@@ -2,6 +2,7 @@ import os
 import uuid
 import tempfile
 import logging
+import asyncio
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from pydantic import BaseModel
 
@@ -91,7 +92,7 @@ async def analyze_video_endpoint(request: Request, file: UploadFile = File(...))
         logger.info(f"Analyzing video: {file.filename} (Size: {total_size} bytes)")
 
         # Run pipeline
-        result = analyze_video(temp_path)
+        result = await asyncio.to_thread(analyze_video, temp_path)
 
         # Inject video_id for feedback tracking
         result["video_id"] = video_id
