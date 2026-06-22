@@ -116,24 +116,39 @@ def save_json_data(filename: str, payload: Any):
     """
     Saves JSON data either to the local filesystem or Hugging Face private dataset,
     depending on the configured AXIOM_MODE.
+
+    In host mode, an atomic write-then-rename strategy is used to prevent the
+    HF dataset file from being left in a corrupted state if the process is
+    interrupted mid-write. The payload is first serialized to a staging path
+    (filename.tmp), and then renamed to the final target path.
     """
     mode = (settings.MODE or "local").strip().lower()
-    
+
     if mode == "host":
         if not settings.HF_DATASET_PATH or not settings.HF_DATASET_PATH.strip():
             logger.warning("AXIOM_HF_DATASET_PATH is not configured. Falling back to local storage.")
             _save_local_json(filename, payload)
             return
-            
+
         dataset_file_path = f"datasets/{settings.HF_DATASET_PATH}/{filename}"
-        
+        staging_path = f"datasets/{settings.HF_DATASET_PATH}/{filename}.tmp"
+
         try:
             fs = _get_hf_fs()
-            with fs.open(dataset_file_path, "w") as f:
+            # Write to a .tmp staging path first to avoid partial-write corruption.
+            with fs.open(staging_path, "w") as f:
                 json.dump(payload, f, indent=2)
-            logger.info(f"Successfully saved and committed {filename} to Hugging Face dataset.")
+            # Atomically promote the staging file to the final destination.
+            fs.rename(staging_path, dataset_file_path, overwrite=True)
+            logger.info(f"Successfully saved {filename} to Hugging Face dataset (atomic rename).")
         except Exception as e:
-            logger.error(f"Failed to save and commit JSON to Hugging Face dataset {dataset_file_path}: {e}")
+            logger.error(f"Failed to save JSON to Hugging Face dataset {dataset_file_path}: {e}")
+            # Best-effort cleanup of the staging file.
+            try:
+                if fs.exists(staging_path):
+                    fs.rm(staging_path)
+            except Exception:
+                pass
             raise e
     else:
         _save_local_json(filename, payload)

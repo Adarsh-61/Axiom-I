@@ -2,31 +2,19 @@ from fastapi import APIRouter, HTTPException, Request
 import logging
 
 from app.api.schemas import FeedbackRequest, FeedbackResponse, FeedbackDiagnosticsResponse
-from app.ml.evolution import record_feedback, get_feedback_diagnostics
+from app.ml.evolution import record_feedback, get_feedback_diagnostics, normalize_label
 from app.security.rate_limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _normalize_feedback_label(value: str) -> str | None:
-    if not isinstance(value, str):
-        return None
-
-    normalized = value.strip().lower()
-    if normalized == "real":
-        return "Real"
-    if normalized == "fake":
-        return "Fake"
-    return None
-
-
 @router.post("/feedback", response_model=FeedbackResponse)
 @limiter.limit("30/minute")
 async def submit_feedback(request: Request, payload: FeedbackRequest):
     try:
-        predicted_label = _normalize_feedback_label(payload.original_prediction)
-        truth_label = _normalize_feedback_label(payload.user_truth)
+        predicted_label = normalize_label(payload.original_prediction)
+        truth_label = normalize_label(payload.user_truth)
 
         if predicted_label is None or truth_label is None:
             raise HTTPException(status_code=400, detail="Prediction and truth must each be 'Real' or 'Fake'.")

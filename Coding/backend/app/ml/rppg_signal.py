@@ -76,13 +76,15 @@ def compute_rppg_anomaly(frames: list[np.ndarray], fps: float = 30.0) -> float:
             if f.shape[:2] != (target_size, target_size):
                 f = cv2.resize(f, (target_size, target_size), interpolation=cv2.INTER_AREA)
                 
-            # Define ROIs (very approximate for an aligned 256x256 crop)
-            # Face/Cheeks: center-ish
-            # Neck: bottom portion
+            # Define ROIs for an aligned 256x256 face crop.
+            # Face/Cheeks: center region capturing cheeks and forehead.
+            # Neck: bottom portion; widened window to reliably capture the neck
+            # area rather than just the chin/jaw edge.
             h, w = f.shape[:2]
-            
+
             face_roi = f[int(h*0.4):int(h*0.7), int(w*0.3):int(w*0.7)]
-            neck_roi = f[int(h*0.85):h, int(w*0.3):int(w*0.7)]
+            neck_roi = f[int(h*0.80):int(h*0.97), int(w*0.25):int(w*0.75)]
+
             
             face_rgb.append(np.mean(face_roi, axis=(0, 1)))
             neck_rgb.append(np.mean(neck_roi, axis=(0, 1)))

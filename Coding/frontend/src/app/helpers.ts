@@ -1,6 +1,7 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
 export const FEEDBACK_CLIENT_ID_KEY = 'axiom_feedback_client_id';
-export const ANALYZE_TIMEOUT_MS = 120_000;
+export const ANALYZE_TIMEOUT_MS = 120_000;       // 2 min  - image analysis
+export const VIDEO_ANALYZE_TIMEOUT_MS = 180_000; // 3 min  - video analysis (heavier pipeline + cold-start)
 export const FEEDBACK_TIMEOUT_MS = 30_000;
 export const METRICS_TIMEOUT_MS = 30_000;
 

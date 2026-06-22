@@ -29,12 +29,12 @@ Thumbs.db
 .env.local
 
 # Models (large binary files)
-Coding/Image/models/*.pth
-Coding/Image/models/*.onnx
-Coding/Image/models/*.pt
+Coding/models/*.pth
+Coding/models/*.onnx
+Coding/models/*.pt
 
 # Uploads
-Coding/Image/uploads/
+Coding/uploads/
 
 # Node
 node_modules/
@@ -45,18 +45,18 @@ out/
 *.log
 
 # Runtime-generated backend feedback logs
-Coding/Image/backend/app/ml/feedback_data/feedback_log.json
-Coding/Image/backend/app/ml/feedback_data/calibration_history.json
-Coding/Image/backend/app/ml/feedback_data/calibration_metrics.json
-Coding/Image/backend/app/ml/feedback_data/quarantine_log.json
-Coding/Image/backend/app/ml/feedback_data/confusion_matrix.json
-Coding/Image/backend/app/ml/feedback_data/seed_features.json
-Coding/Image/backend/app/ml/video_feedback_db.json
-Coding/Image/backend/app/ml/video_calibration_db.json
+Coding/backend/app/ml/feedback_data/feedback_log.json
+Coding/backend/app/ml/feedback_data/calibration_history.json
+Coding/backend/app/ml/feedback_data/calibration_metrics.json
+Coding/backend/app/ml/feedback_data/quarantine_log.json
+Coding/backend/app/ml/feedback_data/confusion_matrix.json
+Coding/backend/app/ml/feedback_data/seed_features.json
+Coding/backend/app/ml/video_feedback_db.json
+Coding/backend/app/ml/video_calibration_db.json
 
 
 # External reference PDFs (kept out of source repository)
-Documents/Image/Research Papers/
+Documents/Research Papers/
 
 # Test
 .pytest_cache/

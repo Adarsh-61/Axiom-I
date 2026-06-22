@@ -1,15 +1,11 @@
-
 import torch
 import logging
+import warnings
 from PIL import Image
 import numpy as np
-import warnings
 
 from app.config import settings
 
-                                
-warnings.filterwarnings("ignore")
-logging.getLogger("transformers").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
@@ -25,44 +21,57 @@ class ViTClassifier:
         self.fake_label_id = None
         self._warned_unavailable = False
 
+        # Suppress noisy informational output from transformers and tokenizer
+        # only during model loading. Using a scoped context manager avoids
+        # accidentally suppressing unrelated warnings from the rest of the codebase.
         try:
-            from transformers import AutoImageProcessor, AutoModelForImageClassification
-            logger.info(
-                "Loading ViT classifier: %s (allow_download=%s)",
-                resolved_model_name,
-                allow_download,
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                logging.getLogger("transformers").setLevel(logging.ERROR)
 
-            self.processor = AutoImageProcessor.from_pretrained(
-                resolved_model_name,
-                local_files_only=not allow_download,
-            )
-            self.model = AutoModelForImageClassification.from_pretrained(
-                resolved_model_name,
-                local_files_only=not allow_download,
-            )
-            self.model.eval()
-            self.model.to(self.device)
+                from transformers import AutoImageProcessor, AutoModelForImageClassification
+                logger.info(
+                    "Loading ViT classifier: %s (allow_download=%s)",
+                    resolved_model_name,
+                    allow_download,
+                )
 
-                                                                                         
-            self.fake_label_id = 0           
+                self.processor = AutoImageProcessor.from_pretrained(
+                    resolved_model_name,
+                    local_files_only=not allow_download,
+                )
+                self.model = AutoModelForImageClassification.from_pretrained(
+                    resolved_model_name,
+                    local_files_only=not allow_download,
+                )
+                self.model.eval()
+                self.model.to(self.device)
+
+            # Determine which output label index corresponds to "Fake".
+            # Default to index 0; update if the model exposes a recognisable label.
+            self.fake_label_id = 0
             for idx, label in self.model.config.id2label.items():
                 label_lower = str(label).lower()
-                target_words = ['fake', 'synthetic', 'deepfake', 'spoof', 'altered', 'manipulated', 'forged', 'tampered', 'generated']
+                target_words = [
+                    'fake', 'synthetic', 'deepfake', 'spoof',
+                    'altered', 'manipulated', 'forged', 'tampered', 'generated',
+                ]
                 if any(word in label_lower for word in target_words):
                     self.fake_label_id = int(idx)
                     break
 
             logger.info(
-                f"ViT loaded on {self.device}. "
-                f"Labels: {self.model.config.id2label}, fake_id={self.fake_label_id}"
+                "ViT loaded on %s. Labels: %s, fake_id=%s",
+                self.device,
+                self.model.config.id2label,
+                self.fake_label_id,
             )
 
         except ImportError:
-            logger.error("transformers library not installed!")
+            logger.error("transformers library not installed.")
         except Exception as e:
             if allow_download:
-                logger.error(f"Failed to load ViT model: {e}")
+                logger.error("Failed to load ViT model: %s", e)
             else:
                 logger.warning(
                     "ViT model unavailable in local cache (%s). "

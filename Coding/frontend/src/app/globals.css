@@ -282,3 +282,17 @@ html, body {
   .signalRow { grid-template-columns: 1fr; gap: 3px; }
   .stepContent { padding: 10px; }
 }
+
+/* Loading skeleton */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-alt) 50%, var(--surface) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+.skeletonLine { height: 12px; margin-bottom: 8px; }
+.skeletonLine:last-child { margin-bottom: 0; width: 60%; }

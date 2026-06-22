@@ -92,7 +92,7 @@ async def health_check(request: Request):
     
     return {
         "status": status,
-        "service": "Axiom-I Image Forensics",
+        "service": settings.PROJECT_NAME,
         "models": {
             "vit_classifier": "ready" if vit_ok else "unavailable",
             "face_detector": "ready" if detector_ok else "unavailable"

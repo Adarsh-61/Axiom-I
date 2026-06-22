@@ -1,4 +1,3 @@
-
 import json
 import logging
 import os
@@ -182,6 +181,12 @@ def _normalize_label(label: Any) -> str | None:
     if value == "fake":
         return "Fake"
     return None
+
+
+# Public alias so other modules (e.g. api/feedback.py) can import and reuse
+# the normalizer without referencing the private implementation directly.
+normalize_label = _normalize_label
+
 
 
 def _normalize_user_id(user_id: Any) -> str:

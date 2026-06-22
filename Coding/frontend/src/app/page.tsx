@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Tex } from './Tex';
 import {
-  API_BASE, ANALYZE_TIMEOUT_MS, FEEDBACK_TIMEOUT_MS, METRICS_TIMEOUT_MS,
+  API_BASE, ANALYZE_TIMEOUT_MS, VIDEO_ANALYZE_TIMEOUT_MS, FEEDBACK_TIMEOUT_MS, METRICS_TIMEOUT_MS,
   AnalysisResponse, FeedbackDiagnosticsResponse, FeedbackSubmitResponse,
   PipelineStepDef, ErrorPayload,
   withTimeout, parseJsonSafe, extractErrorMessage, getOrCreateClientId,
@@ -61,13 +61,19 @@ export default function Home() {
       const name = file.name.toLowerCase();
       const isVideo = file.type.startsWith('video/') || name.endsWith('.mp4') || name.endsWith('.webm') || name.endsWith('.mov') || name.endsWith('.avi');
       const endpoint = isVideo ? `${API_BASE}/api/v1/analyze/video` : `${API_BASE}/api/v1/analyze`;
-      const res = await withTimeout(endpoint, { method: 'POST', body: fd }, ANALYZE_TIMEOUT_MS);
+      // Video analysis uses a longer timeout because the multi-frame pipeline is
+      // significantly heavier, and a cold Hugging Face Space start can take up to a minute.
+      const timeoutMs = isVideo ? VIDEO_ANALYZE_TIMEOUT_MS : ANALYZE_TIMEOUT_MS;
+      const res = await withTimeout(endpoint, { method: 'POST', body: fd }, timeoutMs);
       const p = await parseJsonSafe<AnalysisResponse & ErrorPayload>(res);
       if (!res.ok) throw new Error(extractErrorMessage(p, 'Analysis failed.'));
       if (!p) throw new Error('Empty response.');
       setResult(p as AnalysisResponse);
     } catch (err) {
-      setError(err instanceof DOMException && err.name === 'AbortError' ? 'Analysis timed out.' : err instanceof Error ? err.message : 'Analysis failed.');
+      const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+      setError(isTimeout
+        ? 'Analysis timed out. Video analysis can take up to 3 minutes on first load. Please try again.'
+        : err instanceof Error ? err.message : 'Analysis failed.');
     } finally { setIsAnalyzing(false); }
   };
 
@@ -401,21 +407,30 @@ export default function Home() {
           {feedbackStatus && (<div className="statusBox"><div>{feedbackStatus.message}</div><div>Training Eligible: {feedbackStatus.trainingEligible ? 'Yes' : `No (${feedbackStatus.exclusionReason || 'unknown'})`}</div></div>)}
         </section>
 
-        {/* System Diagnostics (no accordion, flat section) */}
-        {diagnostics && (
-          <section className="card">
-            <div className="cardTitle">System Diagnostics</div>
-            <div className="tableWrap"><table className="table matrixTable">
-              <thead><tr><th>Actual / Predicted</th><th>Real</th><th>Fake</th></tr></thead>
-              <tbody>
-                <tr><th className="textReal">Real</th><td>{matrix?.TN ?? 0}</td><td>{matrix?.FP ?? 0}</td></tr>
-                <tr><th className="textFake">Fake</th><td>{matrix?.FN ?? 0}</td><td>{matrix?.TP ?? 0}</td></tr>
-              </tbody>
-            </table></div>
-            <p className="cardDesc">Total Feedback: {diagnostics.feedback_summary.total_feedback_records} | Training Eligible: {diagnostics.feedback_summary.training_eligible_records}</p>
-          </section>
-        )}
+        {/* System Diagnostics - shows skeleton while loading, data once available */}
+        <section className="card">
+          <div className="cardTitle">System Diagnostics</div>
+          {diagnostics ? (
+            <>
+              <div className="tableWrap"><table className="table matrixTable">
+                <thead><tr><th>Actual / Predicted</th><th>Real</th><th>Fake</th></tr></thead>
+                <tbody>
+                  <tr><th className="textReal">Real</th><td>{matrix?.TN ?? 0}</td><td>{matrix?.FP ?? 0}</td></tr>
+                  <tr><th className="textFake">Fake</th><td>{matrix?.FN ?? 0}</td><td>{matrix?.TP ?? 0}</td></tr>
+                </tbody>
+              </table></div>
+              <p className="cardDesc">Total Feedback: {diagnostics.feedback_summary.total_feedback_records} | Training Eligible: {diagnostics.feedback_summary.training_eligible_records}</p>
+            </>
+          ) : (
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div className="skeleton skeletonLine" style={{ width: '100%', height: 60 }} />
+              <div className="skeleton skeletonLine" />
+              <div className="skeleton skeletonLine" />
+            </div>
+          )}
+        </section>
       </>)}
+
     </div>
   );
 }
