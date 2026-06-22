@@ -1,3 +1,13 @@
+---
+title: Axiom-I Backend
+emoji: 🔬
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # Axiom-I Backend Engine and API Guide
 
 Welcome to the backend engine documentation for Axiom-I. This service acts as the analytical core of the platform, processing uploaded image and video assets to compute physical, signal, and deep learning anomalies before fusing them into a final forensic verdict.
