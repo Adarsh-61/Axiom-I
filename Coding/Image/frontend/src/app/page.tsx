@@ -336,7 +336,7 @@ export default function Home() {
                   <Tex math={`\\text{Specular} = \\sigma\\big(15 \\cdot (\\text{NCC} - 0.30)\\big) = ${f(df.specular)}`} block />
                   <Tex math={`\\text{Frequency} = \\sigma\\big(3.0 \\cdot (\\log_{10}(\\text{HFER}) + 4.5)\\big) = ${f(df.frequency)}`} block />
                   <Tex math={`\\text{Topology} = \\sigma\\big(0.11 \\cdot (C - 18)\\big) = ${f(df.topology)}`} block />
-                  <Tex math={`\\text{Patch} = \\sigma\\big(-20 \\cdot (\\text{CV} - 0.25)\\big) = ${f(df.patch_consistency)}`} block />
+                  <Tex math={`\\text{Patch} = \\sigma\\big(20 \\cdot (\\text{CV} - 0.25)\\big) = ${f(df.patch_consistency)}`} block />
                   <Tex math={`\\text{Wavelet} = \\sigma\\big(3 \\cdot (\\ln(1 + E_{\\text{avg}}) - 4.5)\\big) = ${f(df.wavelet_score)}`} block />
                   <Tex math={`\\text{ViT} = \\text{softmax}(\\text{logits})[\\text{fake}] = ${f(df.vit_score)}`} block />
                 </div>
