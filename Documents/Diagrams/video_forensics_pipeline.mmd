@@ -1,0 +1,62 @@
+graph TD
+    Vid_Input["Video File Ingestion (file_path)"] --> Ingest["Frame Ingest & Sampling (video_ingest.py)"]
+    
+    subgraph Ingest_Routine ["Adaptive Sampler & Quality Check"]
+        Ingest --> Init_Capture["Initialize cv2.VideoCapture()"]
+        Init_Capture --> Read_FPS["Extract video FPS & frame count"]
+        Read_FPS --> Sample_Frames["Adaptively sample frames (max_frames = 3 cap)"]
+        Sample_Frames --> Quality_Metric["Evaluate blur (Laplacian variance) & noise metrics"]
+    end
+    
+    Quality_Metric --> Face_Gateway["Face Tracker Gateway (face_tracker.py)"]
+    
+    subgraph Tracker_Routine ["Face Locator & Sequence Tracker"]
+        Face_Gateway --> Run_MTCNN["Locate face candidates on sample frames"]
+        Run_MTCNN --> Track_Face["Track primary face trajectory across frames (track_main_face)"]
+        Track_Face --> Extract_Seq["Extract cropped face sequence (face_crops)"]
+    end
+
+    Extract_Seq --> Check_Face{"Is face sequence present?"}
+    
+    Check_Face -->|Yes: face_present is True| Branch_A["Branch A: Face-Local Physics & Physiology"]
+    Check_Face -->|No: face_present is False| Branch_B["Branch B: Global Scene Fallback Only"]
+
+    subgraph Branch_Local ["Branch A: Facial Physics & Physiology"]
+        Branch_A --> Run_Optical["Optical Boundary Anomaly (optical_boundary.py)"]
+        Run_Optical --> Calc_Opt["Calculate optical flow field gradients at face boundaries"]
+        
+        Branch_A --> Run_rPPG["rPPG Physiological Correlation (rppg_signal.py)"]
+        Run_rPPG --> ROI_Extract["Define Face ROI (center) & Neck ROI (bottom boundary)"]
+        ROI_Extract --> POS_Algo["Extract Blood Volume Pulses (BVP) via POS Projection Algorithm"]
+        POS_Algo --> Calc_Corr["Compute Pearson correlation between Face and Neck BVPs"]
+        Calc_Corr --> Sig_rPPG["Map correlation: logit = -8.0 * (corr - 0.2)"]
+        
+        Branch_A --> Run_Lighting["Temporal Lighting Drift (temporal_lighting.py)"]
+        Run_Lighting --> Normals_MSR["Extract 3D face normals & MSR texture per frame"]
+        Normals_MSR --> Fit_SH["Fit Spherical Harmonics coefficients sequence"]
+        Fit_SH --> Calc_Drift["Calculate lighting vector drift variance across frames"]
+        
+        Branch_A --> Run_Flicker["Flicker, Wavelets & Codec residuals"]
+        Note over Run_Flicker: temporal_fft.py (flickering metrics)<br/>wavelet_temporal.py (HH sub-band energy)<br/>compression_residual.py (quantization noise variance)
+    end
+
+    subgraph Branch_Global ["Branch B: Global Canvas Analysis"]
+        Branch_B --> Global_Flow["Scene Flow Anomaly (fullframe_temporal.py)"]
+        Global_Flow --> Calc_Global_Opt["Compute flow fields over full canvas frame sequence"]
+        
+        Branch_B --> Run_Backbone["Temporal Backbone Score (temporal_backbone.py)"]
+        Run_Backbone --> Proxy_CNN["Run untrained VideoMamba CNN backbone (w_backbone = 0.00)"]
+    end
+
+    Sig_rPPG & Calc_Opt & Calc_Drift & Run_Flicker --> Fusion["Multi-Signal Video Fusion (video_sri_net.py)"]
+    Calc_Global_Opt & Proxy_CNN --> Fusion
+    
+    subgraph Fusion_Calibrate ["Fusion & Calibration Scaling"]
+        Fusion --> Weighted_Sum["Compute Noisy-OR Fusion probability"]
+        Note over Weighted_Sum: Weights: rPPG=0.22, Lighting=0.18, Scene Flow=0.15,<br/>Optical Boundary=0.15, FFT=0.12, Wavelet=0.10,<br/>Compression=0.08, VideoMamba=0.00
+        
+        Weighted_Sum --> Calibrate["Calibrate prediction (video_evolution.py)"]
+        Calibrate --> Trust_Ramp["Apply Beta-Binomial trust adjustment (calibrate_video_score)"]
+    end
+
+    Trust_Ramp --> Return_Payload["Return video analysis payload (verdict, calibrated_score, video_id)"]

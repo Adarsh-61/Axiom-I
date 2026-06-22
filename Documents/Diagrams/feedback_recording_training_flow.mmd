@@ -1,0 +1,46 @@
+graph TD
+    HTTP_POST["HTTP POST Request to /api/v1/feedback"] --> Validate_Inputs["Validate inputs: score in [0,1], labels normalized"]
+    
+    Validate_Inputs --> Run_Poison_Guard["Poison Guard: _poison_guard(feature_vector, user_truth)"]
+    
+    subgraph Poison_Guard_Engine ["Adversarial Poison Guard Check"]
+        Run_Poison_Guard --> Load_Seed["Load seed statistics: _seed_feature_stats()"]
+        Load_Seed --> Check_Stats{"Are seed stats available?"}
+        
+        Check_Stats -->|No| Accept_No_Stats["Accept telemetry feedback row"]
+        Check_Stats -->|Yes| Compute_Z["Calculate feature-wise Z-Score: z = abs((vec - mean) / std)"]
+        
+        Compute_Z --> Count_Outliers["Count feature dimensions where z > 4.0 (outliers)"]
+        Count_Outliers --> Verify_Threshold{"outlier_count > 5?"}
+        
+        Verify_Threshold -->|No| Compare_Other["Check distance to other class: other_dist + 0.50 < claimed_dist"]
+        Verify_Threshold -->|Yes: Outlier| Flag_Poison["Flag as 'poison_suspected_sigma_outlier'"]
+        
+        Compare_Other -->|No| Accept_Telemetry["Accept telemetry feedback row"]
+        Compare_Other -->|Yes: Class Mismatch| Flag_Mismatch["Flag as 'poison_suspected_label_mismatch'"]
+    end
+
+    Flag_Poison --> Write_Quarantine["Append to quarantine log: _append_quarantine_record()"]
+    Flag_Mismatch --> Write_Quarantine
+    
+    Write_Quarantine --> Reject_Telemetry["Raise ValueError: Contradictory feedback rejected (400 Bad Request)"]
+    
+    Accept_No_Stats --> Save_Feedback["Append to feedback log (save_json_data via storage_provider.py)"]
+    Accept_Telemetry --> Save_Feedback
+    
+    Save_Feedback --> Check_Eligibility{"Is retraining eligible?<br/>(feedback_count >= 15 AND main thread not building)"}
+    
+    Check_Eligibility -->|No| Return_Success["Return metrics without model retraining (200 OK)"]
+    Check_Eligibility -->|Yes| Async_Worker["Launch background worker thread: _refresh_model_async()"]
+    
+    subgraph Model_Retraining_Worker ["Asynchronous Retraining Thread"]
+        Async_Worker --> Rebuild_Model["Run _build_calibration_model()"]
+        Rebuild_Model --> Load_Data["Load all seed features and valid feedback rows"]
+        Load_Data --> Calc_Weights["Assign sample weights: seed = 1.15, feedback = trust_score"]
+        Calc_Weights --> Cross_Val["Compute Cross-Validation log loss for HistGradientBoosting, RandomForest, and LogisticRegression"]
+        Cross_Val --> Select_Best["Select estimator with lowest log loss"]
+        Select_Best --> Fit_Model["Fit selected estimator on full weighted dataset"]
+        Fit_Model --> Update_Cache["Update model singleton cache: _MODEL_CACHE"]
+    end
+
+    Update_Cache --> Return_Success

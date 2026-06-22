@@ -1,0 +1,38 @@
+graph TD
+    HTTP_GET["HTTP GET Request to /api/v1/feedback/metrics"] --> Load_Logs["Load feedback telemetry (load_json_data via storage_provider.py)"]
+    
+    Load_Logs --> Check_Empty{"Are there feedback rows?"}
+    Check_Empty -->|No| Empty_Response["Return default zeros: confusion matrix TN/TP/FP/FN = 0"]
+    Check_Empty -->|Yes| Run_Dedup["Deduplicate logs: _dedup_feedback_rows()"]
+    
+    subgraph Dedup_Filter ["Deduplication Rules"]
+        Run_Dedup --> Group_Users["Group logs by user_id and feature_vector hash"]
+        Group_Users --> Select_Latest["Select the log row with the most recent timestamp"]
+    end
+    
+    Select_Latest --> Partition_Classes["Partition logs into classes (Real vs Fake based on user_truth)"]
+    
+    subgraph Metrics_Calculator ["Confusion Matrix and Quality Solver"]
+        Partition_Classes --> Calc_TN["TN (True Negatives): predicted Real, user_truth Real"]
+        Partition_Classes --> Calc_TP["TP (True Positives): predicted Fake, user_truth Fake"]
+        Partition_Classes --> Calc_FP["FP (False Positives): predicted Fake, user_truth Real"]
+        Partition_Classes --> Calc_FN["FN (False Negatives): predicted Real, user_truth Fake"]
+        
+        Calc_TN & Calc_TP & Calc_FP & Calc_FN --> Sum_N["Sum N = TN + TP + FP + FN"]
+        
+        Sum_N --> Calc_Stats["Compute performance indicators"]
+        Note over Calc_Stats: Accuracy = (TP+TN)/N<br/>Precision = TP/(TP+FP)<br/>Recall = TP/(TP+FN)<br/>F1 = 2*P*R/(P+R)
+    end
+    
+    subgraph Calibration_Brier_Calculator ["Calibration & Probability Statistics"]
+        Sum_N --> Calc_Brier["Compute Brier Score: mean((calibrated_score - user_truth_numeric)^2)"]
+        Calc_Brier --> Calc_Brier_H["Compute Heuristic Brier Score: mean((heuristic_score - user_truth_numeric)^2)"]
+        Calc_Brier_H --> Calc_Brier_L["Compute Learned Model Brier Score: mean((learned_score - user_truth_numeric)^2)"]
+        Calc_Brier_L --> Log_Cal["Compile calibration history logs"]
+    end
+
+    Calc_Stats --> Assemble_Model["Assemble FeedbackDiagnosticsResponse Pydantic payload"]
+    Log_Cal --> Assemble_Model
+    
+    Assemble_Model --> Return_Diagnostics["Return JSON diagnostic response (200 OK)"]
+    Empty_Response --> Return_Diagnostics

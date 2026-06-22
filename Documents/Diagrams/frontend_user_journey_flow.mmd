@@ -1,0 +1,67 @@
+stateDiagram-v2
+    [*] --> Dashboard_Idle : Load Axiom-I Application
+    
+    state Dashboard_Idle {
+        [*] --> Renders_Dropzone : Display drag-and-drop file uploader
+        [*] --> Load_Diagnostics : Fetch aggregated Brier metrics in background
+    }
+    
+    Dashboard_Idle --> Client_Validation : User drops Image or Video file
+    
+    state Client_Validation {
+        [*] --> Check_Format : Check extensions (.jpg, .png, .mp4, .mov, etc.)
+        Check_Format --> Check_Limit : Check file size <= 50MB
+        
+        Check_Limit --> Valid_Media : Passes validations
+        Check_Limit --> Invalid_Media : Fails validations
+    }
+    
+    Invalid_Media --> Dashboard_Idle : Display error toast and return to idle
+    
+    Valid_Media --> Analyzing_State : Trigger fetch API request (/analyze or /analyze/video)
+    
+    state Analyzing_State {
+        [*] --> Disable_Uploader : Disable upload interactive handlers
+        [*] --> Start_Spinners : Render loading shimmer skeletons & spinner overlays
+        [*] --> Timer_Trigger : Monitor response timeout (180s cap)
+    }
+    
+    Analyzing_State --> Dashboard_Idle : Response timeout or server error (show toast)
+    
+    Analyzing_State --> Results_Rendered : API returns 200 OK
+    
+    state Results_Rendered {
+        [*] --> Show_Verdict : Render Verdict badge, confidence gauges, and mode tag
+        [*] --> Draw_Meters : Render colored anomaly meters (Green/Amber/Red)
+        [*] --> Draw_Workflow : Draw interactive pipeline flow graph
+        
+        state Draw_Workflow {
+            [*] --> Inactive_Nodes : Render nodes representing backend files
+            Inactive_Nodes --> Active_Node : User clicks on node
+            Active_Node --> Render_Overlay : Display KaTeX formula & intermediate base64 image
+        }
+    }
+    
+    Results_Rendered --> Proofs_View : User clicks "View Mathematical Proofs"
+    Proofs_View --> Results_Rendered : User returns to dashboard
+    
+    state Proofs_View {
+        [*] --> Ingest_Session : Load results JSON from React state
+        Ingest_Session --> Compile_KaTeX : Type-set variables in latex matrices
+        Compile_KaTeX --> Render_Proofs_Page : Display full formula derivation metrics
+    }
+    
+    Results_Rendered --> Feedback_Submitting : User clicks "Correct" / "Incorrect" verdict rating
+    
+    state Feedback_Submitting {
+        [*] --> Disable_Buttons : Disable rating buttons
+        [*] --> Post_Feedback : Send HTTP POST payload with telemetry array
+        
+        Post_Feedback --> Check_Validation : Server evaluates telemetry
+        
+        Check_Validation --> Poison_Rejected : Poison Guard flags outlier (400 Bad Request)
+        Check_Validation --> Feedback_Accepted : Telemetry validated (200 OK)
+    }
+    
+    Poison_Rejected --> Results_Rendered : Show "Contradictory feedback rejected" banner
+    Feedback_Accepted --> Results_Rendered : Update diagnostics accuracy metrics and show success banner

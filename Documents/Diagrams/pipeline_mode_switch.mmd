@@ -1,0 +1,51 @@
+graph TD
+    Input_Image["Ingest Input Image (img_rgb)"] --> Face_Gateway["Face Gateway (app/ml/face_detector.py)"]
+    Face_Gateway --> Run_MTCNN["Execute detect() using MTCNN face detector"]
+    
+    Run_MTCNN --> Filter_Faces{"Filter face bounding boxes"}
+    Filter_Faces -->|Confidence < 0.90 OR Size < 64px| Reject_Box["Discard bounding box candidate"]
+    Filter_Faces -->|Confidence >= 0.90 AND Size >= 64px| Keep_Box["Keep face crop candidate"]
+    
+    Reject_Box --> Check_Counts{"Are there any valid face crops remaining?"}
+    Keep_Box --> Check_Counts
+    
+    Check_Counts -->|Yes: face_present is True| Full_Physics_Branch["Route to Full Physics Mode ('full_physics')"]
+    Check_Counts -->|No: face_present is False| Fallback_Branch["Route to Fallback Mode ('no_face_fallback')"]
+    
+    subgraph Full_Physics ["Full Physics Mode Flow"]
+        Full_Physics_Branch --> Extract_Face_Crop["Extract face crop ROI (10% padding applied)"]
+        Extract_Face_Crop --> Run_Face_Physics["Execute Face-Local Anomaly Modules"]
+        
+        subgraph Face_Physics_Pipelines ["Local Physical Signals"]
+            Run_Face_Physics --> Physics_Spec["Specular Residual Homology (specular.py)"]
+            Run_Face_Physics --> Physics_SH["3D Spherical Harmonics Illumination (illumination.py)"]
+            Run_Face_Physics --> Physics_PRNU["Patch Noise PRNU Consistency (patch_analysis.py)"]
+            Run_Face_Physics --> Physics_Wave["Discrete Wavelet Transform (wavelet.py)"]
+            Run_Face_Physics --> Physics_TDA["Topological Homology (topology.py)"]
+            Run_Face_Physics --> Physics_ViT["ViT Classifier Face Crop Inference (vit_classifier.py)"]
+        end
+        
+        Physics_Spec --> Fuse_Physics["Probabilistic Noisy-OR Fusion (sri_net.py)"]
+        Physics_SH --> Fuse_Physics
+        Physics_PRNU --> Fuse_Physics
+        Physics_Wave --> Fuse_Physics
+        Physics_TDA --> Fuse_Physics
+        Physics_ViT --> Fuse_Physics
+    end
+
+    subgraph Fallback_Mode ["Fallback Mode Flow"]
+        Fallback_Branch --> Run_Global_Signals["Execute Global Canvas Anomaly Modules"]
+        
+        subgraph Global_Canvas_Pipelines ["Global Signal Processing"]
+            Run_Global_Signals --> Global_FFT["Global 2D FFT Log-Ratio HFER (frequency.py)"]
+            Run_Global_Signals --> Global_Wavelet["Global DWT Energy Variance (wavelet.py)"]
+            Run_Global_Signals --> Global_ViT["ViT Canvas Inference (vit_classifier.py)"]
+        end
+        
+        Global_FFT --> Fuse_Fallback["Bayesian Sub-Ensemble Fusion"]
+        Global_Wavelet --> Fuse_Fallback
+        Global_ViT --> Fuse_Fallback
+    end
+
+    Fuse_Physics --> Output_Verdict["Deliver calibrated prediction response"]
+    Fuse_Fallback --> Output_Verdict

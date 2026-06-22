@@ -1,0 +1,36 @@
+stateDiagram-v2
+    [*] --> Cold_Start : Ingest fresh system deployment
+    
+    state Cold_Start {
+        [*] --> Feedback_Count_Check
+        Feedback_Count_Check --> Disabled_Model : feedback_count < 15
+        Disabled_Model --> Physics_Only : model_weight = 0.00
+        Note right of Physics_Only : The system relies 100% on the Noisy-OR physics heuristic score.<br/>This prevents early bias overfitting on small datasets.
+    }
+    
+    Cold_Start --> Transition_Phase : feedback_count reaches 15
+    
+    state Transition_Phase {
+        [*] --> Activate_Online_Model
+        Activate_Online_Model --> Linear_Ramp : feedback_count between 15 and 49
+        Linear_Ramp --> Weight_Formula : model_weight = 0.10 + 0.02 * (feedback_count - 15)
+        Weight_Formula --> Blend_Output : calibrated = weight * learned + (1 - weight) * heuristic
+        Note right of Blend_Output : The system dynamically shifts from heuristic physics to the learned model,<br/>weighting the online classifier higher as validation data grows.
+    }
+    
+    Transition_Phase --> Mature_State : feedback_count reaches 50
+    
+    state Mature_State {
+        [*] --> Cap_Weights : feedback_count >= 50
+        Cap_Weights --> Max_Weight : model_weight = 0.80 (cap)
+        Max_Weight --> Heuristic_Anchor : calibrated = 0.80 * learned + 0.20 * heuristic
+        Note left of Heuristic_Anchor : The final prediction is dominated by the online model,<br/>but retains a 20% physical anchor to enforce safety bounds.
+    }
+
+    state Mature_State {
+        [*] --> Telemetry_Verification
+        Telemetry_Verification --> User_Trust_Profiling : Update user alpha/beta beta-binomial weights
+        Telemetry_Verification --> Adversarial_Filtering : Run Z-Score Poison Guard
+        Adversarial_Filtering --> Quarantine_State : Outliers (z > 4.0) quarantined
+        Adversarial_Filtering --> Update_Estimator : Valid rows retrain model in background
+    }
