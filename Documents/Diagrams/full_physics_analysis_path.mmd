@@ -1,0 +1,52 @@
+graph TD
+    Face_Crop["Ingest Face Crop ROI (RGB)"] --> Step_Depth["3D Geometry Extraction (face_alignment.py)"]
+    
+    subgraph Geometry_Solver ["3D Geometry Estimator"]
+        Step_Depth --> Bilateral_Filt["Apply Bilateral Filter (d=9, sigma=75) for edge-preserving smoothing"]
+        Bilateral_Filt --> Apply_Radial["Apply Radial Prior mapping: 1.0 - r^2 (Radius from crop center)"]
+        Apply_Radial --> Combine_Depth["Blend depth: 0.75 * smoothed_intensity + 0.25 * prior"]
+        Combine_Depth --> Calc_Sobel["Compute Sobel derivatives (dx, dy) over depth map"]
+        Calc_Sobel --> Norm_Normals["Normalize vectors to compute Face Surface Normal Map (normals)"]
+    end
+    
+    Face_Crop --> Step_Retinex["Multi-Scale Retinex Texture (retinex.py)"]
+    
+    subgraph Retinex_Solver ["MSR Texture Isolator"]
+        Step_Retinex --> Calc_Gauss["Compute Gaussians at scales: sigma = [15, 80, 120]"]
+        Calc_Gauss --> Log_Sub["Subtract log-filtered scales from crop to isolate Skin Texture Map (tex)"]
+    end
+
+    Norm_Normals --> Step_Specular["Specular Highlight Extraction (specular.py)"]
+    Log_Sub --> Step_Specular
+    
+    subgraph Specular_Solver ["Lambertian Highlight Subtraction"]
+        Step_Specular --> Fit_SH["Solve Spherical Harmonics (SH) lighting direction vector (L)"]
+        Fit_SH --> Diffuse_Map["Compute Diffuse diffuse = tex * dot(normals, L)"]
+        Diffuse_Map --> Sub_Diff["Subtract Diffuse from crop: specular = crop - diffuse"]
+        Sub_Diff --> Spec_Anomaly["compute_specular_anomaly() (sri_net.py)"]
+        Spec_Anomaly --> Calc_NCC["Compute Normalized Cross-Correlation (NCC) between tex and specular"]
+        Calc_NCC --> Sig_Spec["Sigmoid score: 1.0 / (1.0 + exp(-15 * (NCC - 0.30)))"]
+    end
+
+    Face_Crop --> Step_PRNU["Patch Noise PRNU Check (patch_analysis.py)"]
+    
+    subgraph PRNU_Solver ["Local Sensor Pattern Noise Analyzer"]
+        Step_PRNU --> Split_Grid["Divide face crop into 4x4 sub-patch grid"]
+        Split_Grid --> Calc_SNR["Extract noise residuals and calculate SNR per patch"]
+        Calc_SNR --> Calc_CV["Calculate Coefficient of Variation CV = std(SNR) / mean(SNR)"]
+        Calc_CV --> Sig_PRNU["Sigmoid score: 1.0 / (1.0 + exp(-20 * (CV - 0.25)))"]
+    end
+
+    Face_Crop --> Step_Wavelet["Wavelet & Homology Check (wavelet.py / topology.py)"]
+    
+    subgraph Wavelet_Homology_ViT ["Other local anomaly extractors"]
+        Step_Wavelet --> DWT_db2["Apply DWT db2 to extract high-frequency HH sub-band map"]
+        DWT_db2 --> Topo_Hom["Topology: Calculate topological persistent homology proxies"]
+        Topo_Hom --> ViT_Local["ViT: Feed face crop to pre-trained transformers classifier"]
+    end
+
+    Sig_Spec --> Fusion["Pass scores to Multi-Signal Bayesian Noisy-OR Fusion"]
+    Sig_PRNU --> Fusion
+    DWT_db2 --> Fusion
+    Topo_Hom --> Fusion
+    ViT_Local --> Fusion

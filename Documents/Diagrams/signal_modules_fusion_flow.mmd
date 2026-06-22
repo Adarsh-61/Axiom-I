@@ -1,0 +1,55 @@
+graph TD
+    subgraph Input_Scores ["Forensic Signal Scores (s_i in [0,1])"]
+        Spec["Specular Anomaly s_spec"]
+        Freq["FFT Frequency Anomaly s_freq"]
+        Topo["Topology Homology s_topo"]
+        Patch["PRNU Patch Anomaly s_patch"]
+        Wave["DWT Wavelet Anomaly s_wavelet"]
+        ViT["ViT Classifier Anomaly s_vit"]
+    end
+
+    subgraph Weighted_Gates ["Link Strength Weights (w_i)"]
+        Spec_W["Weight w_spec = 0.10"]
+        Freq_W["Weight w_freq = 0.18"]
+        Topo_W["Weight w_topo = 0.22"]
+        Patch_W["Weight w_patch = 0.22"]
+        Wave_W["Weight w_wave = 0.15"]
+        ViT_W["Weight w_vit = 0.13"]
+    end
+
+    Spec -->|Multiplied| Spec_Prod["w_spec * s_spec"]
+    Spec_W --> Spec_Prod
+    
+    Freq -->|Multiplied| Freq_Prod["w_freq * s_freq"]
+    Freq_W --> Freq_Prod
+    
+    Topo -->|Multiplied| Topo_Prod["w_topo * s_topo"]
+    Topo_W --> Topo_Prod
+    
+    Patch -->|Multiplied| Patch_Prod["w_patch * s_patch"]
+    Patch_W --> Patch_Prod
+    
+    Wave -->|Multiplied| Wave_Prod["w_wave * s_wavelet"]
+    Wave_W --> Wave_Prod
+    
+    ViT -->|Multiplied| ViT_Prod["w_vit * s_vit"]
+    ViT_W --> ViT_Prod
+
+    subgraph Noisy_OR_Solver ["Bayesian Noisy-OR Math Engine (sri_net.py)"]
+        Spec_Prod --> P_Real_Spec["P_real_spec = 1.0 - (w_spec * s_spec)"]
+        Freq_Prod --> P_Real_Freq["P_real_freq = 1.0 - (w_freq * s_freq)"]
+        Topo_Prod --> P_Real_Topo["P_real_topo = 1.0 - (w_topo * s_topo)"]
+        Patch_Prod --> P_Real_Patch["P_real_patch = 1.0 - (w_patch * s_patch)"]
+        Wave_Prod --> P_Real_Wave["P_real_wavelet = 1.0 - (w_wave * s_wavelet)"]
+        ViT_Prod --> P_Real_ViT["P_real_vit = 1.0 - (w_vit * s_vit)"]
+        
+        P_Real_Spec & P_Real_Freq & P_Real_Topo & P_Real_Patch & P_Real_Wave & P_Real_ViT --> Mult["P_all_real = Product of all P_real_i"]
+        Mult --> Calc_Ensemble["physics_ensemble = 1.0 - P_all_real"]
+    end
+
+    subgraph Sigmoid_Calibration ["Sigmoid Calibration Scaling"]
+        Calc_Ensemble --> Apply_Scale["Scale: logit = -8.0 * (physics_ensemble - 0.40)"]
+        Apply_Scale --> Calc_Calibrated["final_score = 1.0 / (1.0 + exp(logit))"]
+    end
+
+    Calc_Calibrated --> Output_Verdict["Fitted Heuristic Output (calibrated)"]

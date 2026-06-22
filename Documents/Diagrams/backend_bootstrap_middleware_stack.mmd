@@ -1,0 +1,51 @@
+graph TD
+    subgraph Startup_Sequence ["Server Initialization & Bootstrap"]
+        Boot["Uvicorn launches app.main:app"] --> Init_FastAPI["Instantiate app = FastAPI(lifespan=lifespan)"]
+        Init_FastAPI --> Lifespan_Start["Execute lifespan(app) Startup Event"]
+        
+        subgraph Warmup ["Warmup Cache Singletons"]
+            Lifespan_Start --> Warmup_ViT["warmup_classifier()"]
+            Lifespan_Start --> Warmup_MTCNN["warmup_detector()"]
+            
+            Warmup_ViT -->|Success| Log_ViT["Cache ViT model & processor"]
+            Warmup_MTCNN -->|Success| Log_MTCNN["Cache MTCNN on AXIOM_DEVICE"]
+            
+            Warmup_ViT -->|Exception| Catch_ViT["Log warning and proceed in degraded mode"]
+            Warmup_MTCNN -->|Exception| Catch_MTCNN["Log warning and proceed in degraded mode"]
+        end
+        
+        Log_ViT --> Complete_Boot["FastAPI ready to accept HTTP connections"]
+        Log_MTCNN --> Complete_Boot
+        Catch_ViT --> Complete_Boot
+        Catch_MTCNN --> Complete_Boot
+    end
+
+    subgraph Middleware_Chain ["Request Middleware Stack (Sequential Execution)"]
+        HTTP_Req["Incoming HTTP Request"] --> Rate_Limit["Rate Limiter (SlowAPI / Limiter)"]
+        
+        Rate_Limit -->|Rate Limit Exceeded| Err_429["RateLimitExceeded Exception Handler (429 Too Many Requests)"]
+        Rate_Limit -->|Within Limits| Sec_Headers["SecurityHeadersMiddleware"]
+        
+        Sec_Headers --> CSP["Inject Content Security Policy Header (frame-ancestors for Spaces iframe)"]
+        CSP --> HSTS["Inject Strict-Transport-Security (HSTS)"]
+        HSTS --> MIME_Prot["Inject X-Content-Type-Options: nosniff"]
+        MIME_Prot --> Ref_Policy["Inject Referrer-Policy: strict-origin-when-cross-origin"]
+        
+        Ref_Policy --> CORS_Mid["CORSMiddleware (FastAPI)"]
+        CORS_Mid --> Verify_Origin["Check settings.ALLOWED_ORIGINS list"]
+        
+        Verify_Origin -->|Blocked| Err_400["CORS Disallowed (400 Bad Request)"]
+        Verify_Origin -->|Allowed| Router["FastAPI Router Layer"]
+    end
+
+    subgraph API_Router ["FastAPI Route Handlers"]
+        Router --> Root_Route["GET / (Root API endpoints metadata)"]
+        Router --> Health_Route["GET /api/v1/health (Dependency Check)"]
+        Router --> Analyze_Route["POST /api/v1/analyze (Image Processing)"]
+        Router --> Video_Route["POST /api/v1/analyze/video (Video Processing)"]
+        Router --> FB_Route["POST /api/v1/feedback (Feedback Submit)"]
+        Router --> FB_Vid_Route["POST /api/v1/feedback/video (Video Feedback Submit)"]
+        Router --> FB_Metrics["GET /api/v1/feedback/metrics (Diagnostics Panel)"]
+    end
+
+    Complete_Boot --> HTTP_Req

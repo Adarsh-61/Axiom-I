@@ -1,0 +1,65 @@
+graph TB
+    subgraph Frontend_Vercel ["Frontend Client (Vercel Node.js Runtime)"]
+        UI_Dash["src/app/page.tsx (Dashboard UI)"]
+        UI_Math["src/app/math/page.tsx (Proofs UI)"]
+        Helper_API["src/app/helpers.ts (API Client / Fetch)"]
+        CSP_Mid["src/middleware.ts (CSP Proxy Rules)"]
+        
+        UI_Dash --> Helper_API
+        UI_Math --> Helper_API
+        Helper_API <--> CSP_Mid
+    end
+
+    subgraph Backend_HF_Space ["Backend Engine (Hugging Face Spaces - Docker Container)"]
+        API_Routes["app/api/routes.py (Image Analysis / Health)"]
+        API_Video["app/api/video_api.py (Video Analysis / Feedback)"]
+        API_Feedback["app/api/feedback.py (Diagnostics / Feedback)"]
+        
+        subgraph Pipelines ["Forensic Pipeline Orchestrators"]
+            Img_Pipe["app/ml/pipeline.py (Image pipeline)"]
+            Vid_Pipe["app/ml/video_pipeline.py (Video pipeline)"]
+        end
+        
+        subgraph ML_Physics_Modules ["Forensic Signal Analyzers"]
+            Face_Det["app/ml/face_detector.py (MTCNN)"]
+            Face_Align["app/ml/face_alignment.py (3D Normals)"]
+            Specular_Ext["app/ml/specular.py (Highlights)"]
+            SRI_Net["app/ml/sri_net.py (Noisy-OR Fusion)"]
+            RPPG_Sig["app/ml/rppg_signal.py (rPPG Pulse POS)"]
+            FFT_Freq["app/ml/frequency.py (FFT Log-Ratio)"]
+            PRNU_Noise["app/ml/patch_analysis.py (PRNU Variance)"]
+            ViT_Clf["app/ml/vit_classifier.py (ViT Deep Model)"]
+        end
+        
+        subgraph Evolution_Model ["Calibration & Retraining"]
+            Cal_Img["app/ml/evolution.py (Image Calibration & Poison Guard)"]
+            Cal_Vid["app/ml/video_evolution.py (Video Calibration & Trust)"]
+        end
+
+        API_Routes --> Img_Pipe
+        API_Video --> Vid_Pipe
+        API_Feedback --> Cal_Img
+        
+        Img_Pipe --> Face_Det
+        Img_Pipe --> SRI_Net
+        Vid_Pipe --> RPPG_Sig
+        
+        SRI_Net --> Cal_Img
+        Vid_Pipe --> Cal_Vid
+    end
+
+    subgraph Storage_Layer ["Data Persistence Layer"]
+        Local_DB["app/ml/feedback_data/ (Local JSON DBs)"]
+        HF_Dataset["Hugging Face Private Dataset (Staging/Host mode)"]
+        Storage_Prov["app/ml/storage_provider.py (Unified IO)"]
+    end
+
+    Helper_API <--> |"HTTP REST (CORS & CSP)"| API_Routes
+    Helper_API <--> |"HTTP REST"| API_Video
+    Helper_API <--> |"HTTP REST"| API_Feedback
+
+    Cal_Img <--> Storage_Prov
+    Cal_Vid <--> Storage_Prov
+    
+    Storage_Prov <--> |"MODE == 'local'"| Local_DB
+    Storage_Prov <--> |"MODE == 'host'"| HF_Dataset

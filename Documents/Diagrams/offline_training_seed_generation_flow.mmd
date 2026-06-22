@@ -1,0 +1,45 @@
+graph TD
+    Dev_Start["Developer starts: python train_from_testset.py --dataset-root <path>"] --> Parse_Args["Parse CLI Arguments (dataset-root, max-images, mode)"]
+    
+    Parse_Args --> Scan_Dir["Scan dataset directories: <dataset-root>/Real and <dataset-root>/Fake"]
+    Scan_Dir --> Check_Files{"Are image files present?"}
+    
+    Check_Files -->|No| Err_Exit["Print error: No files found & exit(1)"]
+    Check_Files -->|Yes| Loop_Start["Iterate over image files in sorted order"]
+    
+    Loop_Start --> Read_Image["Read image: cv2.imread(path)"]
+    Read_Image --> Check_Read{"Is image valid?"}
+    
+    Check_Read -->|No| Increment_Skip["Increment skipped counter"]
+    Check_Read -->|Yes| RGB_Convert["Convert color space BGR to RGB"]
+    
+    RGB_Convert --> Extract_Features["Extract feature vector via image pipeline (extract_feature_vector_from_image)"]
+    
+    Extract_Features --> Verify_Features{"Verify dimensions: length == 11?"}
+    Verify_Features -->|No| Increment_Skip
+    Verify_Features -->|Yes| Append_Sample["Append tuple (feature_vector, label) to samples list"]
+    
+    Increment_Skip --> Check_More{"Are there more files remaining?"}
+    Append_Sample --> Check_More
+    
+    Check_More -->|Yes| Loop_Next["Go to next image file"]
+    Loop_Next --> Loop_Start
+    
+    Check_More -->|No| Write_Cache["Write cache payload to seed_features.json (app/ml/feedback_data/)"]
+    
+    subgraph Serialization_Structure ["Cache JSON Schema"]
+        Write_Cache --> Save_Fields["Fields: version = 2, samples = list[tuple[list[float], int]]"]
+    end
+    
+    Save_Fields --> Rebuild_Calibrator["Clear model cache and trigger model rebuild: _cached_model()"]
+    
+    subgraph Rebuild_Calibrator_Routine ["Classifier Optimization Engine"]
+        Rebuild_Calibrator --> Load_All["Load samples from seed_features.json & feedback_log.json"]
+        Load_All --> Split_KFold["Split dataset: StratifiedKFold (cv=5)"]
+        Split_KFold --> Compute_LogLoss["Compute log loss for LogisticRegression, RandomForest, and HistGradientBoosting"]
+        Compute_LogLoss --> Pick_Best["Select estimator with the lowest log loss"]
+        Pick_Best --> Fit_Final["Train selected model on full weighted samples"]
+        Fit_Final --> Cache_Model["Save trained model object in _MODEL_CACHE"]
+    end
+
+    Cache_Model --> Train_Done["Print training success diagnostics and exit(0)"]

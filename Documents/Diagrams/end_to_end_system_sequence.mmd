@@ -1,0 +1,48 @@
+sequenceDiagram
+    autonumber
+    actor User as User / Forensic Analyst
+    participant FE as Frontend Dashboard (Next.js)
+    participant BE as Backend API (FastAPI)
+    participant Pipe as Pipeline Orchestrator (pipeline.py/video_pipeline.py)
+    participant ML as Forensic Signal Engines
+    participant Cal as Calibration Layer (evolution.py)
+    participant Storage as Storage Provider (storage_provider.py)
+
+    User->>FE: Ingest media asset (Drag-and-Drop)
+    FE->>FE: Perform client-side validation (Size, MIME, extensions)
+    FE->>BE: HTTP POST multipart/form-data (/analyze or /analyze/video)
+    Note over BE: Rate limiter verification (SlowAPI)
+    Note over BE: Security headers and CORS check
+    BE->>Pipe: Route payload to analyze() / analyze_video()
+    Pipe->>ML: Locate face regions via Face Detector (MTCNN)
+    ML-->>Pipe: Bounding boxes and confidence
+    Pipe->>ML: Execute multi-signal physical/physiological checks
+    Note over ML: Specular residuals, 3D normals, DWT, FFT, POS-rPPG, scene flow
+    ML-->>Pipe: Compute anomaly signal scores & extraction mappings
+    Pipe->>Pipe: Probabilistic Noisy-OR Fusion (specular, PRNU, wavelets...)
+    Pipe->>Cal: Request calibration (calibrate_prediction)
+    Cal->>Storage: Load telemetry calibration parameters/trust metrics
+    Storage-->>Cal: Seed stats & online classification weights
+    Cal->>Cal: Blend heuristic score with online model prediction (weight default 0.0)
+    Cal-->>Pipe: Return calibrated forensic verdict and confidence
+    Pipe-->>BE: Assemble AnalysisResponse dictionary
+    BE-->>FE: Return JSON payload with scores & base64 visualization steps
+    FE->>User: Render forensic verdict, meters, and execution flow graph
+
+    opt Optional Feedback Submission
+        User->>FE: Click feedback rating ("Correct" / "Incorrect")
+        FE->>BE: HTTP POST JSON telemetry (/feedback or /feedback/video)
+        BE->>Cal: Process user feedback (record_feedback / add_video_feedback)
+        Cal->>Cal: Execute Poison Guard check (Z-Score variance)
+        alt Telemetry is Poisoned
+            Cal-->>BE: Raise ValueError / Reject telemetry
+            BE-->>FE: Return 400 Bad Request / Validation Failure
+        else Telemetry is Valid
+            Cal->>Storage: Save updated feedback log database
+            Storage-->>Cal: Success confirmation
+            Cal->>Cal: Trigger background retraining (if feedback count threshold met)
+            Cal-->>BE: Return updated confusion matrix and metrics
+            BE-->>FE: Return 200 OK with diagnostics data
+            FE->>User: Render updated diagnostics dashboard and accuracy meters
+        end
+    end

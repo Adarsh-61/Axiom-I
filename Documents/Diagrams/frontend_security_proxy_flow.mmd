@@ -1,0 +1,25 @@
+graph TD
+    HTTP_Req["Incoming HTTP Request (to page/dashboard)"] --> Next_Middleware["Next.js Middleware Interceptor (src/middleware.ts)"]
+    
+    Next_Middleware --> Set_HSTS["Inject HSTS Header: Strict-Transport-Security max-age=31536000"]
+    Set_HSTS --> Set_Clickjack["Inject anti-clickjacking: X-Frame-Options: DENY"]
+    Set_Clickjack --> Set_MIME["Inject MIME Sniff protection: X-Content-Type-Options: nosniff"]
+    Set_MIME --> Set_Referrer["Inject Referrer-Policy: strict-origin-when-cross-origin"]
+    
+    Set_Referrer --> Set_CSP["Inject Content Security Policy (CSP) Headers"]
+    
+    subgraph CSP_Rules_List ["Content Security Policy Configuration"]
+        Set_CSP --> CSP_Default["default-src 'self' (only load assets from origin)"]
+        Set_CSP --> CSP_Style["style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"]
+        Set_CSP --> CSP_Font["font-src 'self' https://fonts.gstatic.com (Inter and KaTeX fonts)"]
+        Set_CSP --> CSP_Img["img-src 'self' data: blob: (allows base64 and temp blob images)"]
+        Set_CSP --> CSP_Connect["connect-src 'self' https://huggingface.co https://*.hf.space"]
+        Note over CSP_Connect: CSP connect-src is crucial as it permits the React client<br/>to make API fetch calls directly to the Hugging Face hosted backend space.
+    end
+
+    CSP_Connect --> Route_Request["Forward sanitized request to Next.js route handlers"]
+    
+    subgraph Page_Rendering_Flow ["Page Render Ingress"]
+        Route_Request --> Render_Dash["Render page.tsx Dashboard UI"]
+        Route_Request --> Render_Math["Render math/page.tsx Proofs UI"]
+    end

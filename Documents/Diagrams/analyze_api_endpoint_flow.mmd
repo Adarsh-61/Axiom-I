@@ -1,0 +1,28 @@
+graph TD
+    HTTP_POST["HTTP POST Request to /api/v1/analyze"] --> Check_MIME{"Check MIME / Content-Type"}
+    
+    Check_MIME -->|Invalid MIME| Err_400_MIME["Raise 400 Bad Request: Invalid file type"]
+    Check_MIME -->|Valid MIME| Read_Bytes["Read request payload bytes stream"]
+    
+    Read_Bytes --> Check_Size{"Check file payload size"}
+    Check_Size -->|Size > settings.MAX_UPLOAD_SIZE| Err_413_Size["Raise 413 Payload Too Large: Exceeds 50MB limit"]
+    Check_Size -->|Size <= 50MB| Decode_Image["Decode bytes: np.frombuffer & cv2.imdecode()"]
+    
+    Decode_Image --> Check_Decode{"Did BGR image decode successfully?"}
+    Check_Decode -->|No| Err_400_Decode["Raise 400 Bad Request: Failed to decode image"]
+    Check_Decode -->|Yes| Check_Pixels{"Check dimensions: height * width"}
+    
+    Check_Pixels -->|Pixels > settings.MAX_IMAGE_PIXELS| Err_413_Res["Raise 413 Payload Too Large: Resolution exceeds 20M pixels"]
+    Check_Pixels -->|Pixels <= 20M| Convert_RGB["Convert color space: cv2.cvtColor BGR to RGB"]
+    
+    Convert_RGB --> Thread_Offload["Offload to worker: asyncio.to_thread(analyze, img_rgb)"]
+    
+    subgraph Pipeline_Thread_Worker ["Background Thread Execution"]
+        Thread_Offload --> Run_Gate["Run Face Gateway (detect faces)"]
+        Run_Gate --> Run_Signals["Extract signal features and calculate Noisy-OR raw probability"]
+        Run_Signals --> Run_Calibrate["Calibrate score: calibrate_prediction(feature_vector, heuristic_score)"]
+        Run_Calibrate --> Build_Steps["Assemble visual step objects (base64 image representations)"]
+    end
+    
+    Build_Steps --> Build_Response["Construct AnalysisResponse Pydantic model"]
+    Build_Response --> Return_JSON["Return JSON response payload (200 OK)"]

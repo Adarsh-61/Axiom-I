@@ -1,0 +1,35 @@
+graph TD
+    Canvas_Input["Ingest Full Image Canvas (RGB)"] --> Step_FFT["2D Fast Fourier Transform (frequency.py)"]
+    
+    subgraph FFT_Engine ["FFT Signal processing"]
+        Step_FFT --> Gray_Conv["Convert canvas to Grayscale"]
+        Gray_Conv --> Run_FFT["Compute np.fft.fft2() and shift center np.fft.fftshift()"]
+        Run_FFT --> Calc_Power["Calculate log power spectrum: ps = log(1.0 + abs(shifted_F))"]
+        Calc_Power --> Define_Annulus["Apply radial filters to partition ps into low-freq disk & high-freq annulus"]
+        Define_Annulus --> Calc_HFER["Calculate High Frequency Energy Ratio: HFER = HFE / LFE"]
+        Calc_HFER --> Sig_FFT["Sigmoid score: 1.0 / (1.0 + exp(-3.0 * (log10(HFER) + 4.5)))"]
+    end
+    
+    Canvas_Input --> Step_Wavelet["Discrete Wavelet Transform (wavelet.py)"]
+    
+    subgraph Wavelet_Engine ["DWT Signal processing"]
+        Step_Wavelet --> Run_DWT["Apply 2D DWT at level=2 using 'db2' wavelet"]
+        Run_DWT --> Get_HH["Extract HH sub-band coefficients map"]
+        Get_HH --> Calc_Energy["Calculate energy variance over coefficients"]
+        Calc_Energy --> Wavelet_Score["Map variance to heuristic wavelet anomaly score"]
+    end
+    
+    Canvas_Input --> Step_ViT["Deep Semantic Network (vit_classifier.py)"]
+    
+    subgraph ViT_Engine ["ViT Classifier Inferences"]
+        Step_ViT --> Resize_ViT["Resize image to 224x224 (preprocessor requirement)"]
+        Resize_ViT --> Run_ViT["Pass to AutoModelForImageClassification"]
+        Run_ViT --> Get_Probs["Get softmax probability of fake label index (fake_label_id)"]
+    end
+
+    Sig_FFT --> Sub_Ensemble["Calculate Bayesian Sub-Ensemble Fusion"]
+    Wavelet_Score --> Sub_Ensemble
+    Get_Probs --> Sub_Ensemble
+    
+    Sub_Ensemble --> Apply_Sigmoid["Apply final calibration sigmoid transformation"]
+    Apply_Sigmoid --> Output_Verdict["Deliver fallback predictions payload"]
