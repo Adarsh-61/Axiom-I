@@ -1,6 +1,6 @@
 ---
 title: Axiom-I Backend
-emoji: 🔬
+emoji: 🤩
 colorFrom: blue
 colorTo: green
 sdk: docker
@@ -245,4 +245,4 @@ The system employs a client-server microservices pattern:
 
 ## 8. License
 
-This module is distributed under the MIT License. See the root [LICENSE](../../LICENSE) file for details.
+This module is distributed under the MIT License. See the public [LICENSE](https://github.com/Adarsh-61/Axiom-I/blob/main/LICENSE) file for details.
