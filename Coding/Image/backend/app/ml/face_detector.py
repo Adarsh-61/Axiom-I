@@ -9,8 +9,11 @@ logger = logging.getLogger(__name__)
 
                                                                           
 
+from threading import Lock
+
 _detector = None
 _detector_failed = False
+_detector_lock = Lock()
 
 
 def _ensure_detector():
