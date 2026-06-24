@@ -20,6 +20,7 @@ export function middleware(request: NextRequest) {
     "img-src 'self' blob: data:",
     "font-src 'self' data: https://fonts.gstatic.com",
     `connect-src 'self' ${apiBase}`,
+    "frame-src 'self' https://docs.google.com",
     "frame-ancestors 'none'",
   ].join('; ');
 
