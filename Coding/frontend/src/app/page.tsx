@@ -27,6 +27,8 @@ export default function Home() {
   const [feedbackStatus, setFeedbackStatus] = useState<{
     message: string; trainingEligible: boolean; exclusionReason?: string | null;
   } | null>(null);
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [visitCount, setVisitCount] = useState<string>('000000');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDiagnostics = useCallback(async () => {
@@ -40,6 +42,22 @@ export default function Home() {
 
   useEffect(() => { void fetchDiagnostics(); }, [fetchDiagnostics]);
   useEffect(() => { return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }; }, [previewUrl]);
+
+  useEffect(() => {
+    const fallbackKey = 'axiom_visits_fallback';
+    fetch('https://api.counterapi.dev/v1/starlink_axiom_i/home/up')
+      .then(res => res.json())
+      .then(data => {
+        const count = data.count || 1;
+        setVisitCount(String(count).padStart(6, '0'));
+        localStorage.setItem(fallbackKey, String(count));
+      })
+      .catch(() => {
+        const localCount = parseInt(localStorage.getItem(fallbackKey) || '0') + 1;
+        localStorage.setItem(fallbackKey, String(localCount));
+        setVisitCount(String(localCount).padStart(6, '0'));
+      });
+  }, []);
 
   const handleFileSelection = (selectedFile: File) => {
     setError(null); setResult(null); setFeedbackStatus(null);
@@ -430,6 +448,51 @@ export default function Home() {
           )}
         </section>
       </>)}
+
+      <footer className="footer">
+        <div className="footerTitle">Axiom-I</div>
+        <p className="footerText">
+          An open-source project by{' '}
+          <a href="https://github.com/Adarsh-61" target="_blank" rel="noopener noreferrer" className="footerLink">
+            Adarsh-61
+          </a>
+          . Currently running as a demo. No sensitive data.
+        </p>
+        <p className="footerText">
+          Licensed under MIT. Contributions welcome. |{' '}
+          <button className="footerFeedbackBtn" onClick={() => setShowFeedbackForm(true)}>
+            Feedback
+          </button>
+        </p>
+        <div className="footerCounterWrap">
+          <span className="counterLabel">Visitors:</span>
+          <div className="footerCounterBox">{visitCount}</div>
+        </div>
+      </footer>
+
+      {showFeedbackForm && (
+        <div className="modalOverlay" onClick={() => setShowFeedbackForm(false)}>
+          <div className="modalContent" onClick={e => e.stopPropagation()}>
+            <div className="modalHeader">
+              <h3 className="modalTitle">Feedback Form</h3>
+              <button className="modalCloseBtn" onClick={() => setShowFeedbackForm(false)}>&times;</button>
+            </div>
+            <div className="modalBody">
+              <iframe
+                src="https://docs.google.com/forms/d/e/1FAIpQLSeQGi-Srw90DQuIjikmieJSs1YR4S7SMxGfksnDQ3AftGlI2Q/viewform?embedded=true"
+                width="100%"
+                height="600"
+                frameBorder="0"
+                marginHeight={0}
+                marginWidth={0}
+                style={{ border: 'none', borderRadius: '4px' }}
+              >
+                Loading…
+              </iframe>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
