@@ -129,15 +129,17 @@ Axiom-I/
       Dockerfile             - Backend container setup file
       requirements.txt       - Python dependency configuration
     frontend/
-      src/app/
-        page.tsx             - Main forensic analysis workspace
-        math/page.tsx        - Step-by-step mathematical proofs page
-        globals.css          - Custom style rules
-        helpers.ts           - Interface declarations and API utilities
-        Tex.tsx              - KaTeX rendering component
+      src/
+        middleware.ts        - Content-Security-Policy headers middleware
+        app/
+          page.tsx           - Main forensic analysis workspace
+          math/page.tsx      - Step-by-step mathematical proofs page
+          feedback/page.tsx  - Dedicated feedback and contact form page
+          globals.css        - Custom style rules
+          helpers.ts         - Interface declarations and API utilities
+          Tex.tsx            - KaTeX rendering component
   Documents/
     Diagrams/                - Flowcharts and architectural block diagrams
-    Axiom-I.odp              - Project presentation slide file
 ```
 
 ---
