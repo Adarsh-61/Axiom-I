@@ -48,13 +48,13 @@ export default function Home() {
       .then(res => res.json())
       .then(data => {
         const count = data.count || 1;
-        setVisitCount(String(count).padStart(6, '0'));
+        setVisitCount(String(count).padStart(5, '0'));
         localStorage.setItem(fallbackKey, String(count));
       })
       .catch(() => {
         const localCount = parseInt(localStorage.getItem(fallbackKey) || '0') + 1;
         localStorage.setItem(fallbackKey, String(localCount));
-        setVisitCount(String(localCount).padStart(6, '0'));
+        setVisitCount(String(localCount).padStart(5, '0'));
       });
   }, []);
 
@@ -455,7 +455,7 @@ export default function Home() {
           <a href="https://github.com/Adarsh-61" target="_blank" rel="noopener noreferrer" className="footerLink">
             Adarsh-61
           </a>
-          . Currently running as a demo. No sensitive data.
+          . Currently in research preview. No sensitive data.
         </p>
         <p className="footerText">
           Licensed under MIT. Contributions welcome. |{' '}

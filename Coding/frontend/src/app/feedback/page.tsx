@@ -8,7 +8,7 @@ export default function FeedbackPage() {
 
   return (
     <div className="mathPage" style={{ maxWidth: '800px' }}>
-      <div className="mathPageHeader" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+      <div className="mathPageHeader" style={{ borderBottom: 'none', paddingBottom: '0' }}>
         <button
           className="backLink"
           onClick={() => {
@@ -21,13 +21,9 @@ export default function FeedbackPage() {
         >
           &#8592; Back to analysis workspace
         </button>
-        <h1 className="mathPageTitle" style={{ marginTop: '16px' }}>Feedback Form</h1>
-        <p className="mathPageSub">
-          Your feedback is extremely valuable to us. Please fill out this form to report issues or suggest improvements.
-        </p>
       </div>
 
-      <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid var(--border)' }}>
+      <div className="card" style={{ padding: '0', overflow: 'hidden', border: '1px solid var(--border)', marginTop: '16px' }}>
         <iframe
           src="https://docs.google.com/forms/d/e/1FAIpQLSeQGi-Srw90DQuIjikmieJSs1YR4S7SMxGfksnDQ3AftGlI2Q/viewform?embedded=true"
           width="100%"
