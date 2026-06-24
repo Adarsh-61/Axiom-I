@@ -360,21 +360,16 @@ html, body {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .footerCounterBox {
-  border: 1px solid var(--border-strong);
-  padding: 6px 12px;
-  background: var(--surface);
   color: var(--primary);
   font-size: 1.125rem;
   font-weight: 700;
-  letter-spacing: 3px;
+  letter-spacing: 2px;
   font-family: var(--mono);
   display: inline-block;
-  border-radius: 4px;
 }
 
 /* Modal Styles */

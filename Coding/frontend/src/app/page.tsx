@@ -27,7 +27,6 @@ export default function Home() {
   const [feedbackStatus, setFeedbackStatus] = useState<{
     message: string; trainingEligible: boolean; exclusionReason?: string | null;
   } | null>(null);
-  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [visitCount, setVisitCount] = useState<string>('000000');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -460,39 +459,15 @@ export default function Home() {
         </p>
         <p className="footerText">
           Licensed under MIT. Contributions welcome. |{' '}
-          <button className="footerFeedbackBtn" onClick={() => setShowFeedbackForm(true)}>
+          <a href="/feedback" className="footerLink">
             Feedback
-          </button>
+          </a>
         </p>
         <div className="footerCounterWrap">
           <span className="counterLabel">Visitors:</span>
           <div className="footerCounterBox">{visitCount}</div>
         </div>
       </footer>
-
-      {showFeedbackForm && (
-        <div className="modalOverlay" onClick={() => setShowFeedbackForm(false)}>
-          <div className="modalContent" onClick={e => e.stopPropagation()}>
-            <div className="modalHeader">
-              <h3 className="modalTitle">Feedback Form</h3>
-              <button className="modalCloseBtn" onClick={() => setShowFeedbackForm(false)}>&times;</button>
-            </div>
-            <div className="modalBody">
-              <iframe
-                src="https://docs.google.com/forms/d/e/1FAIpQLSeQGi-Srw90DQuIjikmieJSs1YR4S7SMxGfksnDQ3AftGlI2Q/viewform?embedded=true"
-                width="100%"
-                height="600"
-                frameBorder="0"
-                marginHeight={0}
-                marginWidth={0}
-                style={{ border: 'none', borderRadius: '4px' }}
-              >
-                Loading…
-              </iframe>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
